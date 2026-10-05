@@ -10,6 +10,7 @@ import DisasterManagement from '@/pages/disasterManagement.vue'
 import EmployeeCommunication from '@/pages/employeeCommunication.vue'
 import Index from '@/pages/index.vue'
 import Login from '@/pages/login.vue'
+import Overview from '@/pages/overView.vue'
 import StartConversation from '@/pages/startConversation.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -19,6 +20,11 @@ const router = createRouter({
     {
       path: '/',
       component: Index,
+    },
+    {
+      path: '/overview',
+      component: Overview,
+      meta: { requiresAuth: true },
     },
     {
       path: '/start-conversation',
@@ -53,7 +59,7 @@ router.beforeEach(to => {
   }
 
   if (to.path === '/login' && auth.isAuthenticated) {
-    return { path: typeof to.query.redirect === 'string' ? to.query.redirect : '/' }
+    return { path: typeof to.query.redirect === 'string' ? to.query.redirect : '/overview' }
   }
 })
 

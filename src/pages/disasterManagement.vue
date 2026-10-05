@@ -15,7 +15,7 @@
 
       <router-link
         class="back-link"
-        to="/"
+        to="/overview"
       ><v-icon icon="mdi-arrow-left" size="16" /> Back to
         overview</router-link>
     </header>
@@ -134,7 +134,7 @@
     <footer class="response-footer">
       <span>Last synchronized 30 seconds ago</span>
 
-      <router-link to="/">Return to overview <v-icon
+      <router-link to="/overview">Return to overview <v-icon
         icon="mdi-arrow-right"
         size="16"
       /></router-link>

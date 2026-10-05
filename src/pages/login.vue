@@ -27,7 +27,13 @@
         return
       }
 
-      auth.signup(email.value.trim(), password.value)
+      const firstName = fullName.value.trim().split(/\s+/, 1)[0]
+      if (!firstName) {
+        errorMessage.value = 'Enter your name to create an account.'
+        return
+      }
+
+      auth.signup(email.value.trim(), password.value, firstName)
     } else if (!auth.login(email.value.trim(), password.value)) {
       errorMessage.value = 'That email or password is not recognized.'
       return
@@ -35,7 +41,7 @@
 
     const redirect = typeof route.query.redirect === 'string'
       ? route.query.redirect
-      : '/'
+      : '/overview'
 
     router.push(redirect)
   }

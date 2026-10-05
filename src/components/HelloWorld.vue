@@ -46,6 +46,12 @@
           class="nav-login"
           to="/login"
         >Sign in</router-link>
+
+        <router-link
+          v-if="auth.isAuthenticated"
+          class="nav-login"
+          to="/overview"
+        >Overview</router-link>
       </nav>
 
       <div class="hero-grid container">
@@ -62,6 +68,15 @@
           </p>
 
           <div class="hero-actions">
+            <router-link
+              v-if="auth.isAuthenticated"
+              class="button button-primary"
+              to="/overview"
+            >Go to overview <v-icon
+              icon="mdi-arrow-right"
+              size="18"
+            /></router-link>
+
             <router-link
               class="button button-primary"
               to="/start-conversation"

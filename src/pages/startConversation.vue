@@ -18,8 +18,8 @@
 
       <router-link
         class="back-link"
-        to="/"
-      ><v-icon icon="mdi-arrow-left" size="17" /> Back to home</router-link>
+        to="/overview"
+      ><v-icon icon="mdi-arrow-left" size="17" /> Back to overview</router-link>
     </nav>
 
     <div class="conversation-layout container">
@@ -100,9 +100,9 @@
 
           <router-link
             class="return-link"
-            to="/"
+            to="/overview"
           ><v-icon icon="mdi-arrow-left" size="16" /> Return to
-            northstar</router-link>
+            overview</router-link>
         </div>
       </section>
     </div>

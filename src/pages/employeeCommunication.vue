@@ -15,7 +15,7 @@
         <span>northstar<span class="brand-dot">.</span></span>
       </router-link>
 
-      <router-link class="back-link" to="/">
+      <router-link class="back-link" to="/overview">
         <v-icon icon="mdi-arrow-left" size="16" /> Back to overview
       </router-link>
     </header>
