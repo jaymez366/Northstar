@@ -7,19 +7,6 @@
 
 <template>
   <main class="response-page">
-    <header class="page-header">
-      <router-link aria-label="Back to Northstar home" class="brand" to="/">
-        <span class="brand-mark"><span /><span /><span /></span>
-        <span>northstar<span class="brand-dot">.</span></span>
-      </router-link>
-
-      <router-link
-        class="back-link"
-        to="/overview"
-      ><v-icon icon="mdi-arrow-left" size="16" /> Back to
-        overview</router-link>
-    </header>
-
     <section class="response-heading">
       <div>
         <p class="eyebrow">
@@ -156,7 +143,7 @@
 }
 .response-page {
   min-height: 100vh;
-  padding: 0 max(32px, calc((100vw - 1160px) / 2));
+  padding: 0;
   background: #102d26;
 }
 .page-header {

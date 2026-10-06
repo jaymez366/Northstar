@@ -1,25 +1,33 @@
 <script setup lang="ts">
   import { ref } from 'vue'
+  import { useRouter } from 'vue-router'
+  import { useAuthStore } from '@/stores/auth'
+  import { useWorkspaceStore } from '@/stores/workspace'
 
   const message = ref('')
-  function sendUpdate () {
-    message.value = ''
+  const title = ref('')
+  const error = ref('')
+  const auth = useAuthStore()
+  const workspace = useWorkspaceStore()
+  const router = useRouter()
+
+  async function sendUpdate () {
+    error.value = ''
+    if (!title.value.trim() || !message.value.trim()) {
+      error.value = 'Add an announcement title and message before continuing.'
+      return
+    }
+    const published = await workspace.publishAnnouncement(title.value, message.value, auth.profile.firstName || auth.userFirstName)
+    if (published) {
+      router.push('/announcements')
+    } else {
+      error.value = workspace.backendError || 'Your announcement could not be published.'
+    }
   }
 </script>
 
 <template>
   <main class="communication-page">
-    <header class="page-header">
-      <router-link aria-label="Back to Northstar home" class="brand" to="/">
-        <span class="brand-mark"><span /><span /><span /></span>
-        <span>northstar<span class="brand-dot">.</span></span>
-      </router-link>
-
-      <router-link class="back-link" to="/overview">
-        <v-icon icon="mdi-arrow-left" size="16" /> Back to overview
-      </router-link>
-    </header>
-
     <section class="page-intro">
       <p class="eyebrow">EMPLOYEE COMMUNICATION</p>
       <h1>Give every employee<br><em>the same signal.</em></h1>
@@ -41,20 +49,34 @@
           <span class="draft-status">DRAFT</span>
         </div>
 
+        <label for="update-title">Announcement title</label>
+
+        <input
+          id="update-title"
+          v-model="title"
+          class="update-title"
+          maxlength="90"
+          placeholder="Announcement title"
+          type="text"
+        >
+
         <label for="update-message">Message</label>
 
         <textarea
           id="update-message"
           v-model="message"
+          maxlength="500"
           placeholder="Write a clear update for your people..."
           rows="7"
         />
+
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
 
         <div class="composer-footer">
           <span class="character-count">{{ message.length }} / 500</span>
 
           <button class="send-button" type="button" @click="sendUpdate">
-            Continue <v-icon icon="mdi-arrow-right" size="17" />
+            Publish update <v-icon icon="mdi-arrow-right" size="17" />
           </button>
         </div>
       </div>
@@ -145,7 +167,7 @@
 }
 .communication-page {
   min-height: 100vh;
-  padding: 0 max(32px, calc((100vw - 1160px) / 2));
+  padding: 0;
   background: #f3f5ef;
 }
 .page-header {
@@ -281,6 +303,15 @@ textarea {
     sans-serif;
   outline: none;
 }
+.update-title {
+  width: 100%;
+  margin-bottom: 12px;
+  border: 1px solid #cdd6ca;
+  padding: 13px 15px;
+  color: #18352d;
+  font: 600 12px "Manrope", sans-serif;
+}
+.form-error { color: #b85138; font-size: 10px; }
 textarea:focus {
   border-color: #e16b4c;
 }

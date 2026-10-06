@@ -12,9 +12,11 @@
   const password = ref('')
   const confirmPassword = ref('')
   const errorMessage = ref('')
+  const noticeMessage = ref('')
 
-  function submitForm () {
+  async function submitForm () {
     errorMessage.value = ''
+    noticeMessage.value = ''
 
     if (isSignup.value) {
       if (password.value.length < 8) {
@@ -27,16 +29,27 @@
         return
       }
 
-      const firstName = fullName.value.trim().split(/\s+/, 1)[0]
-      if (!firstName) {
+      if (!fullName.value.trim()) {
         errorMessage.value = 'Enter your name to create an account.'
         return
       }
 
-      auth.signup(email.value.trim(), password.value, firstName)
-    } else if (!auth.login(email.value.trim(), password.value)) {
-      errorMessage.value = 'That email or password is not recognized.'
-      return
+      const result = await auth.signup(email.value.trim(), password.value, fullName.value)
+      if (!result.success) {
+        errorMessage.value = auth.errorMessage || 'Your account could not be created.'
+        return
+      }
+      if (result.requiresEmailConfirmation) {
+        noticeMessage.value = 'Check your email for a verification link, then return here to sign in.'
+        isSignup.value = false
+        return
+      }
+    } else {
+      const success = await auth.login(email.value.trim(), password.value)
+      if (!success) {
+        errorMessage.value = auth.errorMessage || 'That email or password is not recognized.'
+        return
+      }
     }
 
     const redirect = typeof route.query.redirect === 'string'
@@ -46,9 +59,24 @@
     router.push(redirect)
   }
 
+  async function sendPasswordReset () {
+    errorMessage.value = ''
+    noticeMessage.value = ''
+    if (!email.value.trim()) {
+      errorMessage.value = 'Enter your email address first.'
+      return
+    }
+    if (await auth.resetPassword(email.value.trim())) {
+      noticeMessage.value = 'If an account exists for that address, a password reset link has been sent.'
+    } else {
+      errorMessage.value = auth.errorMessage
+    }
+  }
+
   function toggleMode () {
     isSignup.value = !isSignup.value
     errorMessage.value = ''
+    noticeMessage.value = ''
   }
 </script>
 
@@ -138,11 +166,17 @@
             <v-icon icon="mdi-alert-circle-outline" size="16" /> {{ errorMessage }}
           </p>
 
+          <p v-if="noticeMessage" class="success-message" role="status">
+            <v-icon icon="mdi-check-circle-outline" size="16" /> {{ noticeMessage }}
+          </p>
+
           <button class="submit-button" type="submit">
             {{ isSignup ? 'Create account' : 'Enter workspace' }}
             <v-icon icon="mdi-arrow-right" size="18" />
           </button>
         </form>
+
+        <button v-if="!isSignup" class="reset-link" type="button" @click="sendPasswordReset">Forgot your password?</button>
 
         <p class="mode-switch">
           {{ isSignup ? 'Already have an account?' : "Don't have an account?" }}
@@ -236,6 +270,8 @@ input { width: 100%; border: 1px solid #557064; border-radius: 0; padding: 14px;
 input::placeholder { color: #8da397; }
 input:focus { outline: 2px solid #d4ec66; outline-offset: 2px; }
 .error-message { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; color: #ffab91; font-size: 11px; line-height: 1.5; }
+.success-message { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; color: #d4ec66; font-size: 11px; line-height: 1.5; }
+.reset-link { display: block; margin: 15px auto 0; border: 0; padding: 0; background: transparent; color: #d4ec66; cursor: pointer; font: 600 10px "Manrope", sans-serif; }
 .submit-button { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; border: 0; padding: 15px 18px; background: #d4ec66; color: #18352d; cursor: pointer; font: 700 12px "Manrope", sans-serif; }
 .submit-button:hover { background: #e5f38b; }
 .mode-switch { margin: 22px 0 0; color: #aabcae; font-size: 11px; text-align: center; }

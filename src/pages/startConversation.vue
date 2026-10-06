@@ -10,18 +10,6 @@
 
 <template>
   <main class="conversation-page">
-    <nav aria-label="Main navigation" class="conversation-nav container">
-      <router-link aria-label="Northstar home" class="brand" to="/">
-        <span class="brand-mark"><span /><span /><span /></span>
-        <span>northstar<span class="brand-dot">.</span></span>
-      </router-link>
-
-      <router-link
-        class="back-link"
-        to="/overview"
-      ><v-icon icon="mdi-arrow-left" size="17" /> Back to overview</router-link>
-    </nav>
-
     <div class="conversation-layout container">
       <section class="conversation-intro">
         <p class="section-overline">START A CONVERSATION</p>
