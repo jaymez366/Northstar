@@ -81,7 +81,7 @@
       <section class="profile-card surface-card">
         <div class="profile-avatar" :style="photoUrl ? { backgroundImage: `url(${photoUrl})` } : undefined">{{ !photoUrl ? `${(form.firstName || 'U').charAt(0).toUpperCase()}${(form.lastName || '').charAt(0).toUpperCase()}` : '' }}</div>
         <h2>{{ form.firstName }} {{ form.lastName }}</h2><p>{{ form.jobTitle || 'Northstar member' }}</p>
-        <span class="profile-status"><i /> Active employee</span>
+        <span class="profile-status"><i /> {{ auth.profile.status === 'active' ? 'Active employee' : 'Inactive employee' }}</span>
         <div class="profile-divider" />
         <small>PROFILE PHOTO</small>
 

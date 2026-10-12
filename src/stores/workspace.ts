@@ -80,86 +80,32 @@ export type Resource = {
   fileUrl?: string
 }
 
-const employees: Employee[] = [
-  { id: 'e1', firstName: 'Jordan', lastName: 'Lee', title: 'People Operations Lead', department: 'People', email: 'jordan.lee@northstar.com', phone: '+1 (415) 555-0101', online: true, initials: 'JL', color: '#d9e9a6' },
-  { id: 'e2', firstName: 'Maya', lastName: 'Patel', title: 'Internal Communications Manager', department: 'Communications', email: 'maya.patel@northstar.com', phone: '+1 (415) 555-0102', online: true, initials: 'MP', color: '#f0d0c4' },
-  { id: 'e3', firstName: 'Theo', lastName: 'Brooks', title: 'Director of Engineering', department: 'Engineering', email: 'theo.brooks@northstar.com', phone: '+1 (415) 555-0103', online: false, initials: 'TB', color: '#d4dfee' },
-  { id: 'e4', firstName: 'Ava', lastName: 'Kim', title: 'Finance Partner', department: 'Finance', email: 'ava.kim@northstar.com', phone: '+1 (415) 555-0104', online: true, initials: 'AK', color: '#eadcb9' },
-  { id: 'e5', firstName: 'Noah', lastName: 'Garcia', title: 'Workplace Experience Lead', department: 'Operations', email: 'noah.garcia@northstar.com', phone: '+1 (415) 555-0105', online: false, initials: 'NG', color: '#d5e8dc' },
-  { id: 'e6', firstName: 'Priya', lastName: 'Shah', title: 'Customer Success Director', department: 'Customer Success', email: 'priya.shah@northstar.com', phone: '+1 (415) 555-0106', online: true, initials: 'PS', color: '#e9d8ea' },
-  { id: 'e7', firstName: 'Ethan', lastName: 'Wright', title: 'Security Program Manager', department: 'Security', email: 'ethan.wright@northstar.com', phone: '+1 (415) 555-0107', online: false, initials: 'EW', color: '#d8e6ed' },
-  { id: 'e8', firstName: 'Sofia', lastName: 'Martin', title: 'Brand Designer', department: 'Communications', email: 'sofia.martin@northstar.com', phone: '+1 (415) 555-0108', online: true, initials: 'SM', color: '#f1dfd5' },
-]
-
-const announcements: Announcement[] = [
-  { id: 'a1', title: 'Company town hall: October edition', description: 'Join us for our monthly company update. We’ll share progress on this quarter’s priorities and leave plenty of time for your questions.', author: 'Maya Patel', department: 'Communications', createdAt: '2026-10-05T09:30:00', priority: 'High', pinned: true },
-  { id: 'a2', title: 'Open enrollment begins next week', description: 'Review your benefits options and make your selections before the enrollment window closes on October 23.', author: 'Jordan Lee', department: 'People', createdAt: '2026-10-04T14:15:00', priority: 'High', pinned: true },
-  { id: 'a3', title: 'New focus rooms on the third floor', description: 'Four quiet focus rooms are now available to book through the workplace calendar. Please leave each room ready for the next person.', author: 'Noah Garcia', department: 'Operations', createdAt: '2026-10-03T11:00:00', priority: 'Normal', pinned: false },
-  { id: 'a4', title: 'October product release notes', description: 'The latest release includes improved notification preferences, faster search, and a refreshed mobile experience.', author: 'Theo Brooks', department: 'Engineering', createdAt: '2026-10-02T16:45:00', priority: 'Normal', pinned: false },
-  { id: 'a5', title: 'Volunteer afternoon sign-ups are open', description: 'Spend an afternoon with the team supporting our neighborhood food bank. Sign up by Friday to reserve your place.', author: 'Priya Shah', department: 'Customer Success', createdAt: '2026-10-01T10:20:00', priority: 'Low', pinned: false },
-]
-
-const initialConversations: Conversation[] = [
-  { id: 'c1', employeeId: 'e2', name: 'Maya Patel', title: 'Internal Communications Manager', initials: 'MP', color: '#f0d0c4', online: true, unread: 2, updatedAt: '9:41 AM', messages: [{ id: '1', author: 'Maya Patel', text: 'Hi! I’m pulling together the town hall agenda.', sentAt: '9:36 AM', mine: false }, { id: '2', author: 'You', text: 'Great — I can send over a few talking points.', sentAt: '9:38 AM', mine: true }, { id: '3', author: 'Maya Patel', text: 'That would be wonderful. Could you send them before lunch?', sentAt: '9:41 AM', mine: false }] },
-  { id: 'c2', employeeId: 'e1', name: 'Jordan Lee', title: 'People Operations Lead', initials: 'JL', color: '#d9e9a6', online: true, unread: 0, updatedAt: 'Yesterday', messages: [{ id: '1', author: 'Jordan Lee', text: 'Thanks for reviewing the benefits guide!', sentAt: 'Yesterday', mine: false }] },
-  { id: 'c3', employeeId: 'e3', name: 'Theo Brooks', title: 'Director of Engineering', initials: 'TB', color: '#d4dfee', online: false, unread: 0, updatedAt: 'Monday', messages: [{ id: '1', author: 'You', text: 'The release notes look great.', sentAt: 'Monday', mine: true }] },
-  { id: 'c4', employeeId: 'e5', name: 'Noah Garcia', title: 'Workplace Experience Lead', initials: 'NG', color: '#d5e8dc', online: false, unread: 1, updatedAt: 'Oct 2', messages: [{ id: '1', author: 'Noah Garcia', text: 'The new rooms are ready to book.', sentAt: 'Oct 2', mine: false }] },
-]
-
-const initialNotifications: WorkspaceNotification[] = [
-  { id: 'n1', title: 'Town hall agenda posted', description: 'Maya Patel shared the October town hall details.', category: 'Announcements', createdAt: '10 minutes ago', unread: true, to: '/announcements' },
-  { id: 'n2', title: 'New message from Maya Patel', description: 'Could you send them before lunch?', category: 'Messages', createdAt: '24 minutes ago', unread: true, to: '/messages' },
-  { id: 'n3', title: 'Designing for clarity workshop', description: 'Your event starts tomorrow at 10:00 AM.', category: 'Events', createdAt: '1 hour ago', unread: true, to: '/events' },
-  { id: 'n4', title: 'Welcome Sofia Martin', description: 'Sofia joined the Communications department.', category: 'People', createdAt: 'Yesterday', unread: false, to: '/employees' },
-  { id: 'n5', title: 'Benefits guide updated', description: 'The 2026 employee benefits guide is ready to review.', category: 'Announcements', createdAt: 'Yesterday', unread: false, to: '/resources' },
-]
-
-const events: CompanyEvent[] = [
-  { id: 'ev1', title: 'Designing for clarity workshop', startsAt: '2026-10-07T10:00:00', location: 'Studio 2 · 3rd floor', description: 'A practical, hands-on session on writing updates people can understand and act on.', organizer: 'Maya Patel', attendees: 28, attending: true },
-  { id: 'ev2', title: 'October company town hall', startsAt: '2026-10-09T13:00:00', location: 'All hands · Main auditorium', description: 'Monthly company update, team highlights, and an open Q&A with leadership.', organizer: 'Jordan Lee', attendees: 146, attending: false },
-  { id: 'ev3', title: 'New manager roundtable', startsAt: '2026-10-14T11:30:00', location: 'Conference room North', description: 'Connect with fellow managers and share approaches for building healthy teams.', organizer: 'People team', attendees: 16, attending: false },
-  { id: 'ev4', title: 'Community volunteer afternoon', startsAt: '2026-10-17T13:30:00', location: 'Harbor Food Bank', description: 'Join colleagues for an afternoon supporting our local food bank.', organizer: 'Priya Shah', attendees: 34, attending: true },
-]
-
-const resources: Resource[] = [
-  { id: 'r1', title: 'Employee handbook', category: 'Policies', description: 'How we work, what we value, and the practical policies that support every Northstar teammate.', format: 'PDF · 2.4 MB', updatedAt: 'Updated Sep 28, 2026' },
-  { id: 'r2', title: '2026 benefits guide', category: 'People', description: 'A guide to healthcare, retirement, leave, and the benefits available to your household.', format: 'PDF · 1.8 MB', updatedAt: 'Updated Oct 5, 2026' },
-  { id: 'r3', title: 'Incident response playbook', category: 'Operations', description: 'Roles, escalation paths, and communication templates for a coordinated response.', format: 'PDF · 3.1 MB', updatedAt: 'Updated Sep 20, 2026' },
-  { id: 'r4', title: 'Manager essentials', category: 'Training', description: 'Core resources for supporting your team through growth, change, and everyday work.', format: 'Course · 6 lessons', updatedAt: 'Updated Sep 18, 2026' },
-  { id: 'r5', title: 'Expense reimbursement form', category: 'Forms', description: 'Submit a business expense for review and reimbursement.', format: 'XLSX · 84 KB', updatedAt: 'Updated Aug 30, 2026' },
-  { id: 'r6', title: 'Brand and communications guide', category: 'Communications', description: 'Voice, visual identity, and practical guidance for clear company communications.', format: 'PDF · 4.2 MB', updatedAt: 'Updated Aug 14, 2026' },
-  { id: 'r7', title: 'Security awareness essentials', category: 'Training', description: 'Quick lessons for protecting company information and spotting common threats.', format: 'Course · 4 lessons', updatedAt: 'Updated Aug 8, 2026' },
-]
-
 export const useWorkspaceStore = defineStore('workspace', () => {
-  const employeeList = ref(employees)
-  const announcementList = ref(announcements)
-  const conversations = ref<Conversation[]>(loadStored('northstar-conversations', initialConversations))
-  const notificationList = ref<WorkspaceNotification[]>(loadStored('northstar-notifications', initialNotifications))
-  const eventList = ref<CompanyEvent[]>(loadStored('northstar-events', events))
-  const resourceList = ref(resources)
+  const employeeList = ref<Employee[]>([])
+  const announcementList = ref<Announcement[]>([])
+  const conversations = ref<Conversation[]>([])
+  const notificationList = ref<WorkspaceNotification[]>([])
+  const eventList = ref<CompanyEvent[]>([])
+  const resourceList = ref<Resource[]>([])
   const departmentList = ref<{ id: string, name: string, description: string }[]>([])
   const activityLogs = ref<{ id: string, action: string, description: string, createdAt: string, user: string }[]>([])
   const backendError = ref('')
   const loading = ref(false)
   let realtimeChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
+  let notificationChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   const unreadNotifications = computed(() => notificationList.value.filter(item => item.unread).length)
   const departments = computed(() => {
-    const departmentNames = departmentList.value.length > 0
-      ? departmentList.value.map(department => department.name)
-      : [...new Set(employeeList.value.map(employee => employee.department))]
-    return departmentNames.map(name => ({
-      name,
-      count: employeeList.value.filter(employee => employee.department === name).length,
-      description: departmentList.value.find(department => department.name === name)?.description
-        ?? departmentDescriptions[name]
-        ?? 'Working together to help Northstar move forward.',
-      members: employeeList.value.filter(employee => employee.department === name),
+    return departmentList.value.map(department => ({
+      name: department.name,
+      count: employeeList.value.filter(employee => employee.department === department.name).length,
+      description: department.description,
+      members: employeeList.value.filter(employee => employee.department === department.name),
     }))
   })
 
   async function load () {
     if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Northstar Supabase is not configured. Add the project URL and public key to the local environment before loading workspace data.'
       return
     }
     const client = supabase
@@ -170,6 +116,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     loading.value = true
     backendError.value = ''
+    employeeList.value = []
+    announcementList.value = []
+    conversations.value = []
+    notificationList.value = []
+    eventList.value = []
+    resourceList.value = []
+    departmentList.value = []
+    activityLogs.value = []
     const errors: string[] = []
     const recordError = (section: string, error: { message: string }) => {
       errors.push(`${section}: ${error.message}`)
@@ -188,8 +142,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     const { data: employeeRows, error: employeeError } = await supabase
       .from('profiles')
-      .select('id,first_name,last_name,email,avatar_url,job_title,department_id,phone,status,departments(name)')
-      .eq('status', 'active')
+      .select('id,first_name,last_name,email,avatar_url,job_title,department_id,employment_status,departments(name)')
+      .eq('employment_status', 'active')
       .order('first_name')
     if (employeeError) {
       recordError('employee directory', employeeError)
@@ -216,7 +170,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           title: row.job_title ?? '',
           department: department?.name ?? '',
           email: row.email ?? '',
-          phone: row.phone ?? '',
+          phone: '',
           online: false,
           initials: `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase(),
           color: avatarColors[(row.id.codePointAt(0) ?? 0) % avatarColors.length] ?? '#dce8ba',
@@ -251,7 +205,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     const { data: notificationRows, error: notificationError } = await supabase
       .from('notifications')
-      .select('id,title,message,type,is_read,created_at')
+      .select('id,title,message,notification_type,is_read,created_at')
       .eq('user_id', auth.userId)
       .order('created_at', { ascending: false })
     if (notificationError) {
@@ -261,16 +215,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         id: row.id,
         title: row.title,
         description: row.message,
-        category: notificationCategory(row.type),
+        category: notificationCategory(row.notification_type),
         createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)),
         unread: !row.is_read,
-        to: notificationRoute(row.type),
+        to: notificationRoute(row.notification_type),
       }))
     }
 
     const { data: eventRows, error: eventError } = await supabase
       .from('events')
-      .select('id,title,description,location,start_time,end_time,organizer:profiles!events_organizer_id_fkey(first_name,last_name),event_attendees(user_id,status)')
+      .select('id,title,description,location,start_time,end_time,organizer:profiles!events_organizer_id_fkey(first_name,last_name),event_attendees(user_id,attendance_status)')
       .order('start_time')
     if (eventError) {
       recordError('events', eventError)
@@ -286,15 +240,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           location: row.location ?? '',
           description: row.description ?? '',
           organizer: `${organizer?.first_name ?? ''} ${organizer?.last_name ?? ''}`.trim() || 'Northstar',
-          attendees: attendees.filter((attendee: { status: string }) => attendee.status === 'going').length,
-          attending: ownRsvp?.status === 'going',
+          attendees: attendees.filter((attendee: { attendance_status: string }) => attendee.attendance_status === 'going').length,
+          attending: ownRsvp?.attendance_status === 'going',
         }
       })
     }
 
     const { data: resourceRows, error: resourceError } = await supabase
       .from('resources')
-      .select('id,title,description,file_url,category,created_at,updated_at')
+      .select('id,title,description,storage_path,category,created_at,updated_at')
       .order('updated_at', { ascending: false })
     if (resourceError) {
       recordError('resources', resourceError)
@@ -304,15 +258,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         title: row.title,
         category: row.category,
         description: row.description ?? '',
-        format: row.file_url?.split('.').at(-1)?.toUpperCase() ?? 'DOCUMENT',
+        format: row.storage_path?.split('.').at(-1)?.toUpperCase() ?? 'DOCUMENT',
         updatedAt: `Updated ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(row.updated_at ?? row.created_at))}`,
-        fileUrl: row.file_url ?? '',
+        fileUrl: row.storage_path ?? '',
       }))
     }
 
     const { data: memberships, error: membershipError } = await supabase
       .from('conversation_members')
-      .select('conversation_id')
+      .select('conversation_id,last_read_at')
       .eq('user_id', auth.userId)
     if (membershipError) {
       recordError('conversation memberships', membershipError)
@@ -323,7 +277,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       } else {
         const { data: conversationRows, error: conversationError } = await supabase
           .from('conversations')
-          .select('id,updated_at,conversation_members(user_id,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,is_read,created_at)')
+          .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at)')
           .in('id', conversationIds)
           .order('updated_at', { ascending: false })
         if (conversationError) {
@@ -332,6 +286,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           conversations.value = (conversationRows ?? []).map(row => {
             const members = Array.isArray(row.conversation_members) ? row.conversation_members : []
             const peer = members.find((member: { user_id: string }) => member.user_id !== auth.userId)
+            const ownMembership = members.find((member: { user_id: string }) => member.user_id === auth.userId)
             const peerProfile = relationOne(peer?.profile)
             const firstName = peerProfile?.first_name ?? 'Colleague'
             const lastName = peerProfile?.last_name ?? ''
@@ -344,7 +299,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
               initials: `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase(),
               color: '#dce8ba',
               online: false,
-              unread: messages.filter((message: { sender_id: string, is_read: boolean }) => message.sender_id !== auth.userId && !message.is_read).length,
+              unread: messages.filter((message: { sender_id: string, created_at: string }) => message.sender_id !== auth.userId && (!ownMembership?.last_read_at || message.created_at > ownMembership.last_read_at)).length,
               updatedAt: row.updated_at ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(row.updated_at)) : '',
               messages: messages.map((message: { id: string, sender_id: string, content: string, created_at: string }) => ({
                 id: message.id,
@@ -418,13 +373,53 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           console.error(backendError.value)
         }
       })
+
+    notificationChannel = supabase
+      .channel(`northstar-notifications-${useAuthStore().userId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${useAuthStore().userId}`,
+      }, payload => {
+        const notification = payload.new as {
+          id: string
+          title: string
+          message: string
+          notification_type: string
+          is_read: boolean
+          created_at: string
+        }
+        if (notificationList.value.some(item => item.id === notification.id)) {
+          return
+        }
+        notificationList.value.unshift({
+          id: notification.id,
+          title: notification.title,
+          description: notification.message,
+          category: notificationCategory(notification.notification_type),
+          createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(notification.created_at)),
+          unread: !notification.is_read,
+          to: notificationRoute(notification.notification_type),
+        })
+      })
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          backendError.value = `Supabase notification subscription failed: ${status}`
+          console.error(backendError.value)
+        }
+      })
   }
 
   function unsubscribeFromMessages () {
     if (realtimeChannel && supabase) {
       void supabase.removeChannel(realtimeChannel)
     }
+    if (notificationChannel && supabase) {
+      void supabase.removeChannel(notificationChannel)
+    }
     realtimeChannel = null
+    notificationChannel = null
   }
 
   async function startConversation (employeeId: string) {
@@ -468,39 +463,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return false
     }
 
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.from('messages').insert({
-        conversation_id: conversationId,
-        content: trimmed,
-      }).select('id,sender_id,content,created_at').single()
-      if (error) {
-        backendError.value = `Could not send message: ${error.message}`
-        console.error(backendError.value, error)
-        return false
-      }
-      if (!conversation.messages.some(item => item.id === data.id)) {
-        conversation.messages.push({
-          id: data.id,
-          author: 'You',
-          text: data.content,
-          sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(data.created_at)),
-          mine: true,
-        })
-      }
-      conversation.updatedAt = 'Now'
-      backendError.value = ''
-      return true
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Sending messages requires a configured Northstar Supabase connection.'
+      return false
     }
 
-    conversation.messages.push({
-      id: String(Date.now()),
-      author: 'You',
-      text: trimmed,
-      sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date()),
-      mine: true,
-    })
+    const { data, error } = await supabase.from('messages').insert({
+      conversation_id: conversationId,
+      content: trimmed,
+    }).select('id,sender_id,content,created_at').single()
+    if (error) {
+      backendError.value = `Could not send message: ${error.message}`
+      console.error(backendError.value, error)
+      return false
+    }
+    if (!conversation.messages.some(item => item.id === data.id)) {
+      conversation.messages.push({
+        id: data.id,
+        author: 'You',
+        text: data.content,
+        sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(data.created_at)),
+        mine: true,
+      })
+    }
     conversation.updatedAt = 'Now'
-    persist('northstar-conversations', conversations.value)
+    backendError.value = ''
     return true
   }
 
@@ -509,17 +496,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!conversation) {
       return
     }
-    conversation.unread = 0
-    if (isSupabaseConfigured && supabase) {
-      const auth = useAuthStore()
-      const { error } = await supabase.from('messages').update({ is_read: true }).eq('conversation_id', conversationId).neq('sender_id', auth.userId)
-      if (error) {
-        backendError.value = `Could not mark messages as read: ${error.message}`
-        console.error(backendError.value, error)
-      }
-    } else {
-      persist('northstar-conversations', conversations.value)
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Marking messages as read requires a configured Northstar Supabase connection.'
+      return
     }
+    const { error } = await supabase
+      .from('conversation_members')
+      .update({ last_read_at: new Date().toISOString() })
+      .eq('conversation_id', conversationId)
+      .eq('user_id', useAuthStore().userId)
+    if (error) {
+      backendError.value = `Could not mark messages as read: ${error.message}`
+      console.error(backendError.value, error)
+      return
+    }
+    conversation.unread = 0
   }
 
   async function markNotificationRead (id: string) {
@@ -527,50 +518,53 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!notification) {
       return
     }
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', id)
-      if (error) {
-        backendError.value = `Could not update notification: ${error.message}`
-        console.error(backendError.value, error)
-        return
-      }
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Updating notifications requires a configured Northstar Supabase connection.'
+      return
+    }
+    const { error } = await supabase.from('notifications').update({
+      is_read: true,
+      read_at: new Date().toISOString(),
+    }).eq('id', id)
+    if (error) {
+      backendError.value = `Could not update notification: ${error.message}`
+      console.error(backendError.value, error)
+      return
     }
     notification.unread = false
-    if (!isSupabaseConfigured) {
-      persist('northstar-notifications', notificationList.value)
-    }
   }
 
   async function markAllNotificationsRead () {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('user_id', useAuthStore().userId)
-      if (error) {
-        backendError.value = `Could not update notifications: ${error.message}`
-        console.error(backendError.value, error)
-        return
-      }
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Updating notifications requires a configured Northstar Supabase connection.'
+      return
+    }
+    const { error } = await supabase.from('notifications').update({
+      is_read: true,
+      read_at: new Date().toISOString(),
+    }).eq('user_id', useAuthStore().userId)
+    if (error) {
+      backendError.value = `Could not update notifications: ${error.message}`
+      console.error(backendError.value, error)
+      return
     }
     for (const item of notificationList.value) {
       item.unread = false
     }
-    if (!isSupabaseConfigured) {
-      persist('northstar-notifications', notificationList.value)
-    }
   }
 
   async function deleteNotification (id: string) {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('notifications').delete().eq('id', id)
-      if (error) {
-        backendError.value = `Could not clear notification: ${error.message}`
-        console.error(backendError.value, error)
-        return
-      }
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Managing notifications requires a configured Northstar Supabase connection.'
+      return
+    }
+    const { error } = await supabase.from('notifications').delete().eq('id', id)
+    if (error) {
+      backendError.value = `Could not clear notification: ${error.message}`
+      console.error(backendError.value, error)
+      return
     }
     notificationList.value = notificationList.value.filter(item => item.id !== id)
-    if (!isSupabaseConfigured) {
-      persist('northstar-notifications', notificationList.value)
-    }
   }
 
   async function toggleRsvp (id: string) {
@@ -578,25 +572,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!event) {
       return
     }
-    if (isSupabaseConfigured && supabase) {
-      const auth = useAuthStore()
-      const status = event.attending ? 'declined' : 'going'
-      const { error } = await supabase.from('event_attendees').upsert({
-        event_id: id,
-        user_id: auth.userId,
-        status,
-      }, { onConflict: 'event_id,user_id' })
-      if (error) {
-        backendError.value = `Could not update event RSVP: ${error.message}`
-        console.error(backendError.value, error)
-        return
-      }
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Updating event RSVPs requires a configured Northstar Supabase connection.'
+      return
+    }
+    const auth = useAuthStore()
+    const { error } = await supabase.from('event_attendees').upsert({
+      event_id: id,
+      user_id: auth.userId,
+      attendance_status: event.attending ? 'declined' : 'going',
+    }, { onConflict: 'event_id,user_id' })
+    if (error) {
+      backendError.value = `Could not update event RSVP: ${error.message}`
+      console.error(backendError.value, error)
+      return
     }
     event.attendees += event.attending ? -1 : 1
     event.attending = !event.attending
-    if (!isSupabaseConfigured) {
-      persist('northstar-events', eventList.value)
-    }
   }
 
   async function togglePinned (id: string) {
@@ -604,13 +596,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!announcement) {
       return
     }
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('announcements').update({ is_pinned: !announcement.pinned }).eq('id', id)
-      if (error) {
-        backendError.value = `Could not update announcement pin: ${error.message}`
-        console.error(backendError.value, error)
-        return
-      }
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Updating announcements requires a configured Northstar Supabase connection.'
+      return
+    }
+    const { error } = await supabase.from('announcements').update({ is_pinned: !announcement.pinned }).eq('id', id)
+    if (error) {
+      backendError.value = `Could not update announcement pin: ${error.message}`
+      console.error(backendError.value, error)
+      return
     }
     announcement.pinned = !announcement.pinned
   }
@@ -621,39 +615,29 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!trimmedTitle || !trimmedDescription) {
       return false
     }
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.from('announcements').insert({
-        title: trimmedTitle,
-        content: trimmedDescription,
-        priority: 'normal',
-      }).select('id,title,content,created_at,priority,is_pinned').single()
-      if (error) {
-        backendError.value = `Could not publish announcement: ${error.message}`
-        console.error(backendError.value, error)
-        return false
-      }
-      announcementList.value.unshift({
-        id: data.id,
-        title: data.title,
-        description: data.content,
-        author,
-        department: 'Company',
-        createdAt: data.created_at,
-        priority: 'Normal',
-        pinned: data.is_pinned,
-      })
-      return true
+    if (!isSupabaseConfigured || !supabase) {
+      backendError.value = 'Publishing announcements requires a configured Northstar Supabase connection.'
+      return false
     }
-
-    announcementList.value.unshift({
-      id: `a-${Date.now()}`,
+    const { data, error } = await supabase.from('announcements').insert({
       title: trimmedTitle,
-      description: trimmedDescription,
+      content: trimmedDescription,
+      priority: 'normal',
+    }).select('id,title,content,created_at,priority,is_pinned').single()
+    if (error) {
+      backendError.value = `Could not publish announcement: ${error.message}`
+      console.error(backendError.value, error)
+      return false
+    }
+    announcementList.value.unshift({
+      id: data.id,
+      title: data.title,
+      description: data.content,
       author,
       department: 'Company',
-      createdAt: new Date().toISOString(),
+      createdAt: data.created_at,
       priority: 'Normal',
-      pinned: false,
+      pinned: data.is_pinned,
     })
     return true
   }
@@ -740,23 +724,4 @@ function notificationRoute (type: string) {
     people: '/employees',
     resource: '/resources',
   } as Record<string, string>)[type] ?? '/announcements'
-}
-
-const departmentDescriptions: Record<string, string> = {
-  'People': 'Helping every teammate do their best work and feel supported.',
-  'Communications': 'Making sure the right information reaches the right people.',
-  'Engineering': 'Building reliable, thoughtful tools for our customers and teams.',
-  'Finance': 'Creating clarity and confidence around our financial decisions.',
-  'Operations': 'Making the day-to-day work of Northstar run smoothly.',
-  'Customer Success': 'Helping customers get meaningful outcomes from Northstar.',
-  'Security': 'Protecting our people, systems, and customer trust.',
-}
-
-function loadStored<T> (key: string, fallback: T): T {
-  const stored = localStorage.getItem(key)
-  return stored ? JSON.parse(stored) as T : fallback
-}
-
-function persist (key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value))
 }

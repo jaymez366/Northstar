@@ -101,21 +101,30 @@
         </div>
       </header>
 
-      <main class="workspace-main">      <v-alert
-                                           v-if="workspace.backendError || auth.errorMessage"
-                                           class="backend-alert"
-                                           closable
-                                           type="warning"
-                                           variant="tonal"
-                                           @click:close="workspace.backendError = ''; auth.errorMessage = ''"
-                                         >
-                                           {{ workspace.backendError || auth.errorMessage }}
-                                           <template #append>
-                                             <v-btn size="small" variant="text" @click="workspace.load">Retry</v-btn>
-                                           </template>
-                                         </v-alert>
+      <main class="workspace-main">
+        <v-progress-linear
+          v-if="workspace.loading"
+          aria-label="Loading workspace data"
+          color="primary"
+          indeterminate
+        />
 
-        <slot /></main>
+        <v-alert
+          v-if="workspace.backendError || auth.errorMessage"
+          class="backend-alert"
+          closable
+          type="warning"
+          variant="tonal"
+          @click:close="workspace.backendError = ''; auth.errorMessage = ''"
+        >
+          {{ workspace.backendError || auth.errorMessage }}
+          <template #append>
+            <v-btn size="small" variant="text" @click="workspace.load">Retry</v-btn>
+          </template>
+        </v-alert>
+
+        <slot />
+      </main>
     </div>
   </div>
 </template>

@@ -160,11 +160,6 @@ function toggleMode() {
           </button>
         </p>
 
-        <div v-if="!isSignup" class="demo-note">
-          <span class="demo-label">DEMO ACCOUNT</span>
-          <strong>demo@northstar.com</strong>
-          <span>Password: northstar123</span>
-        </div>
       </section>
     </div>
 
@@ -414,25 +409,6 @@ input:focus {
 
 .mode-switch button:hover {
   color: #e5f38b;
-}
-
-.demo-note {
-  display: grid;
-  gap: 6px;
-  margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid #3c5c51;
-  color: #aabcae;
-  font-size: 11px;
-}
-
-.demo-note strong {
-  color: #f3f5ef;
-  font-size: 12px;
-}
-
-.demo-label {
-  color: #d4ec66;
 }
 
 .login-footer {

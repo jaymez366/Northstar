@@ -3,8 +3,16 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
-const storageKey = 'northstar-authenticated'
-const accountKey = 'northstar-account'
+for (const legacyKey of [
+  'northstar-authenticated',
+  'northstar-account',
+  'northstar-user-role',
+  'northstar-user-email',
+  'northstar-user-first-name',
+  'northstar-user-profile',
+]) {
+  localStorage.removeItem(legacyKey)
+}
 
 export type UserProfile = {
   firstName: string
@@ -17,18 +25,6 @@ export type UserProfile = {
   avatarPath: string
   role: 'employee' | 'manager' | 'admin'
   status: 'active' | 'inactive'
-}
-
-type LegacyAccount = {
-  email: string
-  password: string
-  firstName?: string
-  lastName?: string
-  jobTitle?: string
-  department?: string
-  phone?: string
-  photoUrl?: string
-  role?: 'employee' | 'manager' | 'admin'
 }
 
 function emptyProfile (): UserProfile {
@@ -47,13 +43,13 @@ function emptyProfile (): UserProfile {
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const isAuthenticated = ref(localStorage.getItem(storageKey) === 'true')
-  const isAdmin = ref(localStorage.getItem('northstar-user-role') === 'admin')
+  const isAuthenticated = ref(false)
+  const isAdmin = ref(false)
   const userId = ref('')
-  const userEmail = ref(localStorage.getItem('northstar-user-email') ?? '')
-  const userFirstName = ref(localStorage.getItem('northstar-user-first-name') ?? '')
+  const userEmail = ref('')
+  const userFirstName = ref('')
   const isPasswordRecovery = ref(false)
-  const profile = ref<UserProfile>(readCachedProfile())
+  const profile = ref<UserProfile>(emptyProfile())
   const ready = ref(false)
   const errorMessage = ref('')
   let initialization: Promise<void> | null = null
@@ -68,36 +64,42 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     initialization = (async () => {
-      if (isSupabaseConfigured && supabase) {
-        const { data, error } = await supabase.auth.getSession()
-        if (error) {
-          errorMessage.value = `Could not restore your Supabase session: ${error.message}`
-          console.error(errorMessage.value, error)
-        } else if (data.session) {
-          applySupabaseUser(data.session.user)
-          isPasswordRecovery.value = window.location.hash.includes('type=recovery')
-          await loadProfile(data.session.user.id)
+      if (!isSupabaseConfigured || !supabase) {
+        errorMessage.value = 'Northstar Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable account access.'
+        clearAuthenticatedUser()
+        ready.value = true
+        return
+      }
+
+      const { data, error } = await supabase.auth.getSession()
+      if (error) {
+        errorMessage.value = `Could not restore your Supabase session: ${error.message}`
+        console.error(errorMessage.value, error)
+        clearAuthenticatedUser()
+      } else if (data.session) {
+        applySupabaseUser(data.session.user)
+        isPasswordRecovery.value = window.location.hash.includes('type=recovery')
+        await loadProfile(data.session.user.id)
+      } else {
+        clearAuthenticatedUser()
+      }
+
+      const { data: authState } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          isPasswordRecovery.value = true
+        }
+        if (session) {
+          applySupabaseUser(session.user)
+          if (['SIGNED_IN', 'TOKEN_REFRESHED', 'USER_UPDATED'].includes(event)) {
+            window.setTimeout(() => {
+              void loadProfile(session.user.id)
+            }, 0)
+          }
         } else {
           clearAuthenticatedUser()
         }
-
-        const { data: authState } = supabase.auth.onAuthStateChange((event, session) => {
-          if (event === 'PASSWORD_RECOVERY') {
-            isPasswordRecovery.value = true
-          }
-          if (session) {
-            applySupabaseUser(session.user)
-            if (['SIGNED_IN', 'TOKEN_REFRESHED', 'USER_UPDATED'].includes(event)) {
-              window.setTimeout(() => {
-                void loadProfile(session.user.id)
-              }, 0)
-            }
-          } else {
-            clearAuthenticatedUser()
-          }
-        })
-        authSubscription = authState.subscription
-      }
+      })
+      authSubscription = authState.subscription
       ready.value = true
     })()
 
@@ -105,38 +107,36 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loadProfile (id: string) {
-    if (!supabase) {
+    if (!supabase || !isSupabaseConfigured || id !== userId.value) {
       return
     }
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('first_name,last_name,job_title,department_id,phone,avatar_url,role,status,departments(name)')
-      .eq('id', id)
-      .maybeSingle()
+    const { data, error } = await supabase.rpc('get_my_profile')
 
     if (error) {
+      isAdmin.value = false
       errorMessage.value = `Could not load your profile from Supabase: ${error.message}`
       console.error(errorMessage.value, error)
       return
     }
 
-    if (!data) {
+    const ownProfile = data?.[0]
+    if (!ownProfile) {
+      isAdmin.value = false
       errorMessage.value = 'Your Supabase account has no profile yet. Apply the profile trigger SQL in Supabase.'
       return
     }
 
-    const department = Array.isArray(data.departments) ? data.departments[0] : data.departments
     profile.value = {
-      firstName: data.first_name ?? '',
-      lastName: data.last_name ?? '',
-      jobTitle: data.job_title ?? '',
-      department: department?.name ?? '',
-      departmentId: data.department_id ?? '',
-      phone: data.phone ?? '',
+      firstName: ownProfile.first_name ?? '',
+      lastName: ownProfile.last_name ?? '',
+      jobTitle: ownProfile.job_title ?? '',
+      department: ownProfile.department_name ?? '',
+      departmentId: ownProfile.department_id ?? '',
+      phone: ownProfile.phone_number ?? '',
       photoUrl: '',
-      avatarPath: data.avatar_url ?? '',
-      role: data.role ?? 'employee',
-      status: data.status ?? 'active',
+      avatarPath: ownProfile.avatar_url ?? '',
+      role: ownProfile.role ?? 'employee',
+      status: ownProfile.employment_status ?? 'active',
     }
     let avatarLoadError = ''
     if (profile.value.avatarPath) {
@@ -152,48 +152,30 @@ export const useAuthStore = defineStore('auth', () => {
     }
     userFirstName.value = profile.value.firstName
     isAdmin.value = profile.value.role === 'admin'
-    localStorage.setItem('northstar-user-first-name', userFirstName.value)
-    localStorage.setItem('northstar-user-role', profile.value.role)
-    localStorage.setItem('northstar-user-profile', JSON.stringify(profile.value))
     errorMessage.value = avatarLoadError
   }
 
   async function login (email: string, password: string) {
     errorMessage.value = ''
 
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        errorMessage.value = error.message
-        return false
-      }
-      if (!data.user) {
-        errorMessage.value = 'Supabase did not return a user after sign-in.'
-        return false
-      }
-
-      applySupabaseUser(data.user)
-      localStorage.removeItem(accountKey)
-      await loadProfile(data.user.id)
-      return true
-    }
-
-    const savedAccount = localStorage.getItem(accountKey)
-    const account = savedAccount ? JSON.parse(savedAccount) as LegacyAccount : null
-    const isDemoAccount = email === 'demo@northstar.com' && password === 'northstar123'
-    const isSavedAccount = account?.email === email && account.password === password
-    if (!isDemoAccount && !isSavedAccount) {
+    if (!isSupabaseConfigured || !supabase) {
+      errorMessage.value = 'Account access is unavailable until Northstar Supabase is configured.'
       return false
     }
 
-    isAuthenticated.value = true
-    isAdmin.value = account?.role === 'admin' || isDemoAccount
-    userEmail.value = email
-    profile.value = isSavedAccount && account
-      ? profileFromLegacy(account)
-      : { ...emptyProfile(), firstName: 'Demo', lastName: 'User', jobTitle: 'Workspace administrator', department: 'Operations', role: 'admin' }
-    userFirstName.value = profile.value.firstName || email.split('@', 1)[0]
-    saveLocalSession()
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      errorMessage.value = 'That email or password is not recognized.'
+      console.error('Supabase sign-in failed', error)
+      return false
+    }
+    if (!data.user) {
+      errorMessage.value = 'Supabase did not return a user after sign-in.'
+      return false
+    }
+
+    applySupabaseUser(data.user)
+    await loadProfile(data.user.id)
     return true
   }
 
@@ -203,42 +185,28 @@ export const useAuthStore = defineStore('auth', () => {
     const firstName = nameParts[0] ?? ''
     const lastName = nameParts.slice(1).join(' ')
 
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { first_name: firstName, last_name: lastName } },
-      })
-      if (error) {
-        errorMessage.value = error.message
-        return { success: false, requiresEmailConfirmation: false }
-      }
-
-      localStorage.removeItem(accountKey)
-      if (data.session && data.user) {
-        applySupabaseUser(data.user)
-        await loadProfile(data.user.id)
-        return { success: true, requiresEmailConfirmation: false }
-      }
-
-      return { success: true, requiresEmailConfirmation: true }
+    if (!isSupabaseConfigured || !supabase) {
+      errorMessage.value = 'Account registration is unavailable until Northstar Supabase is configured.'
+      return { success: false, requiresEmailConfirmation: false }
     }
 
-    const account: LegacyAccount = {
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      firstName,
-      lastName,
-      role: 'employee',
+      options: { data: { first_name: firstName, last_name: lastName } },
+    })
+    if (error) {
+      errorMessage.value = error.message
+      return { success: false, requiresEmailConfirmation: false }
     }
-    localStorage.setItem(accountKey, JSON.stringify(account))
-    isAuthenticated.value = true
-    isAdmin.value = false
-    userEmail.value = email
-    profile.value = profileFromLegacy(account)
-    userFirstName.value = firstName
-    saveLocalSession()
-    return { success: true, requiresEmailConfirmation: false }
+
+    if (data.session && data.user) {
+      applySupabaseUser(data.user)
+      await loadProfile(data.user.id)
+      return { success: true, requiresEmailConfirmation: false }
+    }
+
+    return { success: true, requiresEmailConfirmation: true }
   }
 
   async function resetPassword (email: string) {
@@ -279,7 +247,7 @@ export const useAuthStore = defineStore('auth', () => {
         first_name: updates.firstName,
         last_name: updates.lastName,
         job_title: updates.jobTitle,
-        phone: updates.phone,
+        phone_number: updates.phone,
       }).eq('id', userId.value)
       if (error) {
         errorMessage.value = `Could not save your profile: ${error.message}`
@@ -290,16 +258,8 @@ export const useAuthStore = defineStore('auth', () => {
       return !errorMessage.value
     }
 
-    profile.value = { ...profile.value, ...updates }
-    userFirstName.value = profile.value.firstName
-    localStorage.setItem('northstar-user-first-name', userFirstName.value)
-    localStorage.setItem('northstar-user-profile', JSON.stringify(profile.value))
-    const savedAccount = localStorage.getItem(accountKey)
-    if (savedAccount) {
-      const account = JSON.parse(savedAccount) as LegacyAccount
-      localStorage.setItem(accountKey, JSON.stringify({ ...account, ...updates }))
-    }
-    return true
+    errorMessage.value = 'Profile updates require a configured Northstar Supabase connection.'
+    return false
   }
 
   async function uploadAvatar (file: File) {
@@ -350,22 +310,11 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin.value = false
     profile.value = {
       ...profile.value,
-      firstName: String(user.user_metadata.first_name ?? profile.value.firstName ?? ''),
-      lastName: String(user.user_metadata.last_name ?? profile.value.lastName ?? ''),
+      firstName: String(user.user_metadata.first_name ?? ''),
+      lastName: String(user.user_metadata.last_name ?? ''),
       role: 'employee',
     }
     userFirstName.value = profile.value.firstName || userEmail.value.split('@', 1)[0]
-    localStorage.setItem(storageKey, 'true')
-    localStorage.setItem('northstar-user-email', userEmail.value)
-    localStorage.setItem('northstar-user-first-name', userFirstName.value)
-  }
-
-  function saveLocalSession () {
-    localStorage.setItem(storageKey, 'true')
-    localStorage.setItem('northstar-user-role', profile.value.role)
-    localStorage.setItem('northstar-user-email', userEmail.value)
-    localStorage.setItem('northstar-user-first-name', userFirstName.value)
-    localStorage.setItem('northstar-user-profile', JSON.stringify(profile.value))
   }
 
   function clearAuthenticatedUser () {
@@ -375,11 +324,7 @@ export const useAuthStore = defineStore('auth', () => {
     userEmail.value = ''
     userFirstName.value = ''
     profile.value = emptyProfile()
-    localStorage.removeItem(storageKey)
-    localStorage.removeItem('northstar-user-role')
-    localStorage.removeItem('northstar-user-email')
-    localStorage.removeItem('northstar-user-first-name')
-    localStorage.removeItem('northstar-user-profile')
+    isPasswordRecovery.value = false
   }
 
   function dispose () {
@@ -408,26 +353,3 @@ export const useAuthStore = defineStore('auth', () => {
     dispose,
   }
 })
-
-function readCachedProfile (): UserProfile {
-  const saved = localStorage.getItem('northstar-user-profile')
-  if (!saved) {
-    return { ...emptyProfile(), firstName: localStorage.getItem('northstar-user-first-name') ?? '' }
-  }
-
-  const profile = JSON.parse(saved) as Partial<UserProfile>
-  return { ...emptyProfile(), ...profile }
-}
-
-function profileFromLegacy (account: LegacyAccount): UserProfile {
-  return {
-    ...emptyProfile(),
-    firstName: account.firstName ?? '',
-    lastName: account.lastName ?? '',
-    jobTitle: account.jobTitle ?? '',
-    department: account.department ?? '',
-    phone: account.phone ?? '',
-    photoUrl: account.photoUrl ?? '',
-    role: account.role ?? 'employee',
-  }
-}

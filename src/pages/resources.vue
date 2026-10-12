@@ -6,6 +6,7 @@
   const search = ref('')
   const category = ref('All resources')
   const selected = ref<Resource | null>(null)
+  const downloadError = ref('')
   const isDialogOpen = computed({
     get: () => selected.value !== null,
     set: (open: boolean) => {
@@ -16,26 +17,24 @@
   const filteredResources = computed(() => workspace.resources.filter(item => (category.value === 'All resources' || item.category === category.value) && `${item.title} ${item.description} ${item.category}`.toLowerCase().includes(search.value.trim().toLowerCase())))
 
   async function downloadResource (resource: Resource) {
-    if (resource.fileUrl) {
-      const downloadUrl = await workspace.getResourceDownloadUrl(resource)
-      if (downloadUrl) {
-        window.open(downloadUrl, '_blank', 'noopener,noreferrer')
-      }
+    downloadError.value = ''
+    if (!resource.fileUrl) {
+      downloadError.value = 'This resource does not have a file in Northstar Storage yet.'
       return
     }
-    const contents = `${resource.title}\n\n${resource.description}\n\nNorthstar ${resource.category} resource`
-    const link = document.createElement('a')
-    const objectUrl = URL.createObjectURL(new Blob([contents], { type: 'text/plain' }))
-    link.href = objectUrl
-    link.download = `${resource.title.toLowerCase().replaceAll(' ', '-')}.txt`
-    link.click()
-    URL.revokeObjectURL(objectUrl)
+    const downloadUrl = await workspace.getResourceDownloadUrl(resource)
+    if (downloadUrl) {
+      window.open(downloadUrl, '_blank', 'noopener,noreferrer')
+    } else {
+      downloadError.value = workspace.backendError || 'The resource could not be downloaded.'
+    }
   }
 </script>
 
 <template>
   <main>
     <header class="page-heading"><div><p class="eyebrow">KNOWLEDGE AT YOUR FINGERTIPS</p><h1>Resources</h1><p>Policies, guides, and tools to help you do your best work.</p></div></header>
+    <p v-if="downloadError" class="download-error" role="alert">{{ downloadError }}</p>
     <div class="toolbar"><input v-model="search" aria-label="Search resources" class="field-control" placeholder="Search resources"><select v-model="category" aria-label="Filter resource category" class="field-control"><option v-for="item in categories" :key="item">{{ item }}</option></select><span class="resource-count">{{ filteredResources.length }} resources</span></div>
 
     <section v-if="filteredResources.length > 0" class="resource-grid">
@@ -53,6 +52,7 @@
 
 <style scoped>
 .resource-count { margin-left: auto; color: #829187; font-size: 10px; }
+.download-error { color: #a34c39; font-size: 10px; }
 .resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
 .resource-card { display: flex; min-height: 255px; flex-direction: column; padding: 17px; }
 .resource-top { display: flex; align-items: center; justify-content: space-between; }

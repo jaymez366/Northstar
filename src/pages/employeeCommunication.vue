@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { computed, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
   import { useWorkspaceStore } from '@/stores/workspace'
@@ -10,6 +10,8 @@
   const auth = useAuthStore()
   const workspace = useWorkspaceStore()
   const router = useRouter()
+  const audienceDepartments = computed(() => workspace.departments.slice(0, 3))
+  const recentUpdates = computed(() => workspace.announcements.slice(0, 2))
 
   async function sendUpdate () {
     error.value = ''
@@ -83,36 +85,18 @@
 
       <aside class="insight-panel">
         <p class="eyebrow">REACH AT A GLANCE</p>
-        <div class="reach-number">4,208 <span>people</span></div>
-        <div class="reach-bar"><span /></div>
+        <div class="reach-number">{{ workspace.employees.length }} <span>people</span></div>
+        <div class="reach-bar" :style="{ opacity: workspace.employees.length > 0 ? 1 : 0.35 }"><span /></div>
 
         <div class="reach-meta">
-          <span>98% opted in</span><span>Across 12 teams</span>
+          <span>Active profiles</span><span>{{ workspace.departments.length }} departments</span>
         </div>
 
         <div class="audience-list">
-          <div>
-            <span class="audience-dot lime" />
-
-            <span>All employees</span>
-
-            <strong>3,842</strong>
-          </div>
-
-          <div>
-            <span class="audience-dot coral" />
-
-            <span>Managers</span>
-
-            <strong>284</strong>
-          </div>
-
-          <div>
-            <span class="audience-dot dark" />
-
-            <span>On-call teams</span>
-
-            <strong>82</strong>
+          <div v-for="(department, index) in audienceDepartments" :key="department.name">
+            <span class="audience-dot" :class="['lime', 'coral', 'dark'][index]" />
+            <span>{{ department.name }}</span>
+            <strong>{{ department.count }}</strong>
           </div>
         </div>
       </aside>
@@ -125,30 +109,21 @@
           <h2>Keep the rhythm.</h2>
         </div>
 
-        <span class="live-label"><span /> LIVE DELIVERY</span>
+        <span class="live-label"><span /> PUBLISHED UPDATES</span>
       </div>
 
-      <div class="update-row">
-        <span class="update-time">TODAY<br><strong>09:41</strong></span>
+      <div v-for="update in recentUpdates" :key="update.id" class="update-row">
+        <span class="update-time">{{ new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(update.createdAt)) }}</span>
 
         <div>
-          <strong>Severe weather protocol</strong>
-          <p>All clear update sent to the organization.</p>
+          <strong>{{ update.title }}</strong>
+          <p>{{ update.description }}</p>
         </div>
 
-        <span class="delivered"><v-icon icon="mdi-check-circle" size="15" /> Delivered</span>
+        <span class="delivered"><v-icon icon="mdi-check-circle" size="15" /> Published</span>
       </div>
 
-      <div class="update-row">
-        <span class="update-time">YESTERDAY<br><strong>16:20</strong></span>
-
-        <div>
-          <strong>Quarterly town hall reminder</strong>
-          <p>Sent to 1,642 employees across 8 teams.</p>
-        </div>
-
-        <span class="delivered"><v-icon icon="mdi-check-circle" size="15" /> Delivered</span>
-      </div>
+      <p v-if="recentUpdates.length === 0" class="no-updates">No announcements have been published yet.</p>
     </section>
   </main>
 </template>

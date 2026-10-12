@@ -1,13 +1,16 @@
 <script setup lang="ts">
-  import { reactive, ref, watch } from 'vue'
+  import { onMounted, reactive, ref, watch } from 'vue'
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
   const auth = useAuthStore()
   const router = useRouter()
   const i18n = useI18n()
   const saved = ref(false)
+  const saving = ref(false)
+  const settingsError = ref('')
   const defaults = {
     announcements: true,
     messages: true,
@@ -15,18 +18,50 @@
     compact: false,
     language: 'en' as 'en' | 'ja',
   }
-  const storedPreferences = localStorage.getItem('northstar-preferences')
-  const preferences = reactive({
-    ...defaults,
-    ...(storedPreferences ? JSON.parse(storedPreferences) as Partial<typeof defaults> : {}),
-  })
+  const preferences = reactive({ ...defaults })
+
+  async function loadSettings () {
+    if (!isSupabaseConfigured || !supabase) {
+      settingsError.value = 'Northstar Supabase is not configured, so account settings cannot be loaded.'
+      return
+    }
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .select('preferences')
+      .eq('user_id', auth.userId)
+      .maybeSingle()
+    if (error) {
+      settingsError.value = `Could not load your account settings: ${error.message}`
+      console.error(settingsError.value, error)
+      return
+    }
+    if (data?.preferences && typeof data.preferences === 'object') {
+      Object.assign(preferences, data.preferences)
+    }
+    i18n.locale.value = preferences.language
+  }
 
   watch(() => preferences.compact, compact => {
     document.documentElement.classList.toggle('compact-workspace', compact)
   }, { immediate: true })
 
-  function saveSettings () {
-    localStorage.setItem('northstar-preferences', JSON.stringify(preferences))
+  async function saveSettings () {
+    if (!isSupabaseConfigured || !supabase) {
+      settingsError.value = 'Saving settings requires a configured Northstar Supabase connection.'
+      return
+    }
+    settingsError.value = ''
+    saving.value = true
+    const { error } = await supabase.from('user_preferences').upsert({
+      user_id: auth.userId,
+      preferences: { ...preferences },
+    })
+    saving.value = false
+    if (error) {
+      settingsError.value = `Could not save your account settings: ${error.message}`
+      console.error(settingsError.value, error)
+      return
+    }
     i18n.locale.value = preferences.language
     saved.value = true
     window.setTimeout(() => {
@@ -35,15 +70,21 @@
   }
 
   function logout () {
-    auth.logout()
-    router.push('/login')
+    void auth.logout().then(signedOut => {
+      if (signedOut) router.push('/login')
+    })
   }
+
+  onMounted(() => {
+    void loadSettings()
+  })
 </script>
 
 <template>
   <main>
     <header class="page-heading"><div><p class="eyebrow">MAKE IT YOURS</p><h1>Settings</h1><p>Manage your account, notifications, and workspace preferences.</p></div></header>
-    <p v-if="saved" class="saved-message" role="status"><v-icon icon="mdi-check-circle-outline" size="17" /> Settings saved on this device.</p>
+    <p v-if="saved" class="saved-message" role="status"><v-icon icon="mdi-check-circle-outline" size="17" /> Settings saved to your account.</p>
+    <p v-if="settingsError" class="settings-error" role="alert">{{ settingsError }}</p>
 
     <div class="settings-layout">
       <nav class="settings-index"><a href="#account">Account</a><a href="#notifications">Notifications</a><a href="#security">Security</a><a href="#appearance">Appearance</a><a href="#language">Language</a></nav>
@@ -58,12 +99,13 @@
       </div>
     </div>
 
-    <div class="save-settings"><button class="primary-action" @click="saveSettings"><v-icon icon="mdi-content-save-outline" size="16" /> Save preferences</button></div>
+    <div class="save-settings"><button class="primary-action" :disabled="saving" @click="saveSettings"><v-icon icon="mdi-content-save-outline" size="16" /> {{ saving ? 'Saving…' : 'Save preferences' }}</button></div>
   </main>
 </template>
 
 <style scoped>
 .saved-message { display: flex; align-items: center; gap: 8px; color: #4b8058; font-size: 10px; }
+.settings-error { color: #a34c39; font-size: 10px; }
 .settings-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); align-items: start; gap: 18px; }
 .settings-index { position: sticky; top: 95px; display: grid; gap: 3px; padding: 8px 0; }
 .settings-index a { padding: 9px; color: #718178; text-decoration: none; font-size: 10px; }

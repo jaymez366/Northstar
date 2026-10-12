@@ -6,21 +6,13 @@ import { isSupabaseConfigured } from '../../lib/supabase.js'
 const workspace = useWorkspaceStore()
 const employeeSearch = ref('')
 const filteredEmployees = computed(() => workspace.employees.filter(employee => `${employee.firstName} ${employee.lastName} ${employee.department}`.toLowerCase().includes(employeeSearch.value.trim().toLowerCase())))
-const activities = [
-  { id: 'a', icon: 'mdi-bullhorn-outline', title: 'Town hall announcement published', actor: 'Maya Patel', time: '10 minutes ago' },
-  { id: 'b', icon: 'mdi-account-plus-outline', title: 'Sofia Martin joined Communications', actor: 'People team', time: 'Yesterday' },
-  { id: 'c', icon: 'mdi-calendar-check-outline', title: 'October town hall scheduled', actor: 'Jordan Lee', time: 'Yesterday' },
-  { id: 'd', icon: 'mdi-file-document-outline', title: 'Benefits guide updated', actor: 'Jordan Lee', time: 'Oct 2' },
-]
-const displayedActivities = computed(() => isSupabaseConfigured
-  ? workspace.activityLogs.map(item => ({
+const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     id: item.id,
     icon: item.action.includes('announcement') ? 'mdi-bullhorn-outline' : (item.action.includes('event') ? 'mdi-calendar-outline' : 'mdi-file-document-outline'),
     title: item.description,
     actor: item.user,
     time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.createdAt)),
-  }))
-  : activities)
+  })))
 </script>
 
 <template>
@@ -112,8 +104,7 @@ const displayedActivities = computed(() => isSupabaseConfigured
           members</small><v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" /></router-link>
     </section>
 
-    <p class="admin-note">Sample organization data is local to this demo workspace. Administrator access is kept
-      separate from employee accounts.</p>
+    <p v-if="!isSupabaseConfigured" class="admin-note">Configure the Northstar Supabase project to load organization data.</p>
   </main>
 </template>
 

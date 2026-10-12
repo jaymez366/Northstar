@@ -1,7 +1,9 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue'
+  import { useAuthStore } from '@/stores/auth'
   import { type Announcement, useWorkspaceStore } from '@/stores/workspace'
 
+  const auth = useAuthStore()
   const workspace = useWorkspaceStore()
   const search = ref('')
   const priority = ref('All priorities')
@@ -23,6 +25,7 @@
     ]
   })
   const priorities = ['All priorities', 'High', 'Normal', 'Low']
+  const canManageAnnouncements = computed(() => ['admin', 'manager'].includes(auth.profile.role))
 
   function formatDate (date: string) {
     return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(date))
@@ -33,7 +36,7 @@
   <main>
     <header class="page-heading">
       <div><p class="eyebrow">COMPANY-WIDE UPDATES</p><h1>Announcements</h1><p>Company news and important updates, all in one place.</p></div>
-      <router-link class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
+      <router-link v-if="canManageAnnouncements" class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
     </header>
 
     <div class="toolbar">
@@ -51,7 +54,7 @@
         <div class="announcement-meta">
           <span v-if="item.pinned" class="pinned-label"><v-icon icon="mdi-pin" size="14" /> PINNED</span>
           <span class="priority-label" :class="item.priority.toLowerCase()">{{ item.priority }} priority</span>
-          <button :aria-label="item.pinned ? 'Unpin announcement' : 'Pin announcement'" class="icon-action" @click="workspace.togglePinned(item.id)"><v-icon :icon="item.pinned ? 'mdi-pin' : 'mdi-pin-outline'" size="18" /></button>
+          <button v-if="canManageAnnouncements" :aria-label="item.pinned ? 'Unpin announcement' : 'Pin announcement'" class="icon-action" @click="workspace.togglePinned(item.id)"><v-icon :icon="item.pinned ? 'mdi-pin' : 'mdi-pin-outline'" size="18" /></button>
         </div>
 
         <button class="announcement-title" @click="selected = item">{{ item.title }}</button>
