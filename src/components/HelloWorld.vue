@@ -610,21 +610,53 @@ h2 span,
 .map-route {
   position: absolute;
   height: 2px;
-  background: #e16b4c;
   transform-origin: left;
 }
 .route-one {
   width: 210px;
   top: 104px;
   left: 50px;
+  --route-length: 210px;
+  --route-color: #e16b4c;
+  background: var(--route-color);
   transform: rotate(-27deg);
 }
 .route-two {
   width: 170px;
   top: 142px;
   left: 154px;
+  --route-length: 170px;
+  --route-color: #18352d;
+  background: var(--route-color);
   transform: rotate(28deg);
-  background: #18352d;
+}
+.map-route::before,
+.map-route::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+.map-route::before {
+  top: 0;
+  left: -36px;
+  width: 36px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(246, 248, 238, 0.95), transparent);
+  animation: signal-sweep 4.8s linear infinite;
+}
+.map-route::after {
+  top: -2px;
+  left: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f6f8ee;
+  box-shadow: 0 0 7px 2px var(--route-color);
+  animation: signal-travel 4.8s linear infinite;
+}
+.route-two::before,
+.route-two::after {
+  animation-delay: -2.1s;
 }
 .map-pin {
   position: absolute;
@@ -640,6 +672,19 @@ h2 span,
     10px "DM Mono",
     monospace;
   box-shadow: 0 2px 4px #879887;
+}
+.map-pin::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 1px solid rgba(225, 107, 76, 0.55);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: node-signal 3s ease-out infinite;
+}
+.pin-two::after {
+  border-color: rgba(24, 53, 45, 0.55);
+  animation-delay: -1.5s;
 }
 .pin-one {
   top: 80px;
@@ -678,6 +723,32 @@ h2 span,
 }
 .orange-dot {
   background: #e16b4c;
+}
+@keyframes signal-sweep {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(var(--route-length) + 36px));
+  }
+}
+@keyframes signal-travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--route-length));
+  }
+}
+@keyframes node-signal {
+  0% {
+    opacity: 0.65;
+    transform: scale(0.75);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
 }
 .dashboard-bottom {
   justify-content: space-between;
@@ -1025,6 +1096,13 @@ h2 span,
   }
   .solution-detail h3 {
     font-size: 27px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-route::before,
+  .map-route::after,
+  .map-pin::after {
+    animation: none;
   }
 }
 .solution-link {
