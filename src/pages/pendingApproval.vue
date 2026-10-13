@@ -13,7 +13,7 @@
     error.value = ''
     await auth.refreshProfile()
     checking.value = false
-    if (auth.profile.approvalStatus === 'approved' || auth.profile.role === 'admin') {
+    if (auth.profile.approvalStatus === 'approved' || auth.isAdmin) {
       await router.replace('/overview')
     } else if (!auth.profile.registrationCompleted) {
       await router.replace('/employee-registration')

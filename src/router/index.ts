@@ -153,7 +153,7 @@ function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore
 
   if (to.meta.allowUnverified && auth.isAuthenticated && auth.emailVerified) {
     return auth.profile.registrationCompleted
-      ? (auth.profile.approvalStatus === 'approved' || auth.profile.role === 'admin' ? '/overview' : '/pending-approval')
+      ? (auth.profile.approvalStatus === 'approved' || auth.isAdmin ? '/overview' : '/pending-approval')
       : '/employee-registration'
   }
 
@@ -179,14 +179,14 @@ function getRegistrationRedirect (to: RouteLocationNormalized, auth: AuthStore):
     && auth.emailVerified
     && auth.profile.registrationCompleted
     && auth.profile.approvalStatus !== 'approved'
-    && auth.profile.role !== 'admin'
+    && !auth.isAdmin
     && !to.meta.allowPendingApproval
   ) {
     return '/pending-approval'
   }
 
   if (to.path === '/employee-registration' && auth.profile.registrationCompleted) {
-    return auth.profile.approvalStatus === 'approved' || auth.profile.role === 'admin'
+    return auth.profile.approvalStatus === 'approved' || auth.isAdmin
       ? '/overview'
       : '/pending-approval'
   }
@@ -214,7 +214,7 @@ function getLoginRedirect (to: RouteLocationNormalized, auth: AuthStore): RouteL
     if (!auth.profile.registrationCompleted) {
       return '/employee-registration'
     }
-    if (auth.profile.approvalStatus !== 'approved' && auth.profile.role !== 'admin') {
+    if (auth.profile.approvalStatus !== 'approved' && !auth.isAdmin) {
       return '/pending-approval'
     }
     return { path: typeof to.query.redirect === 'string' ? to.query.redirect : '/overview' }

@@ -1,9 +1,10 @@
 import type { User } from '@supabase/supabase-js'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
+import { isSupabaseConfigured, supabase, supabaseConfigurationError } from '../../lib/supabase.js'
 
 const signupConfirmationRedirect = 'https://northstar-1k1.pages.dev/auth/callback'
+const administratorEmail = 'northstaradmin34@gmail.com'
 
 for (const legacyKey of [
   'northstar-authenticated',
@@ -98,7 +99,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     initialization = (async () => {
       if (!isSupabaseConfigured || !supabase) {
-        errorMessage.value = 'Northstar Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable account access.'
+        errorMessage.value = `Northstar Supabase is not configured in this build. ${supabaseConfigurationError} Add the missing variable(s) to the hosting build environment and redeploy.`
         clearAuthenticatedUser()
         ready.value = true
         return
@@ -192,7 +193,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
     }
     userFirstName.value = profile.value.firstName
-    isAdmin.value = profile.value.role === 'admin'
+    isAdmin.value = isDesignatedAdministrator()
     errorMessage.value = avatarLoadError
   }
 
@@ -260,7 +261,7 @@ export const useAuthStore = defineStore('auth', () => {
     const lastName = nameParts.slice(1).join(' ')
 
     if (!isSupabaseConfigured || !supabase) {
-      errorMessage.value = 'Account registration is unavailable until Northstar Supabase is configured.'
+      errorMessage.value = `Account registration is unavailable because this build has no Northstar Supabase configuration. ${supabaseConfigurationError} Add the missing variable(s) to the hosting build environment and redeploy.`
       return { success: false, requiresEmailConfirmation: false }
     }
 
@@ -423,7 +424,7 @@ export const useAuthStore = defineStore('auth', () => {
     userEmail.value = user.email ?? ''
     isAuthenticated.value = true
     emailVerified.value = Boolean(user.email_confirmed_at)
-    isAdmin.value = false
+    isAdmin.value = isDesignatedAdministrator()
     profile.value = {
       ...profile.value,
       firstName: String(user.user_metadata.first_name ?? ''),
@@ -442,6 +443,12 @@ export const useAuthStore = defineStore('auth', () => {
     userFirstName.value = ''
     profile.value = emptyProfile()
     isPasswordRecovery.value = false
+  }
+
+  function isDesignatedAdministrator () {
+    return isAuthenticated.value
+      && emailVerified.value
+      && userEmail.value.trim().toLowerCase() === administratorEmail
   }
 
   function dispose () {

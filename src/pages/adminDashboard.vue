@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
 const workspace = useWorkspaceStore()
+const auth = useAuthStore()
 const employeeSearch = ref('')
 const pendingEmployees = ref<{
   user_id: string
@@ -42,6 +44,10 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
   })))
 
   async function loadPendingEmployees () {
+    if (!auth.isAdmin) {
+      approvalError.value = 'Only the confirmed Northstar administrator account can access registration approvals.'
+      return
+    }
     if (!isSupabaseConfigured || !supabase) {
       approvalError.value = 'Employee approvals require a configured Northstar Supabase connection.'
       return
@@ -59,6 +65,10 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
   }
 
   async function loadEmailVerificationRecords () {
+    if (!auth.isAdmin) {
+      verificationRecordsError.value = 'Only the confirmed Northstar administrator account can access email verification records.'
+      return
+    }
     if (!isSupabaseConfigured || !supabase) {
       verificationRecordsError.value = 'Email verification records require a configured Northstar Supabase connection.'
       return
@@ -81,7 +91,10 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
   }
 
   async function setEmployeeApproval (userId: string, approvalStatus: 'approved' | 'rejected') {
-    if (!supabase || updatingEmployeeId.value) return
+    if (!auth.isAdmin || !supabase || updatingEmployeeId.value) {
+      approvalError.value = 'Only the confirmed Northstar administrator account can update registration approvals.'
+      return
+    }
     updatingEmployeeId.value = userId
     approvalError.value = ''
     const { error } = await supabase.rpc('admin_set_employee_approval', {
