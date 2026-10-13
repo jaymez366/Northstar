@@ -1,83 +1,92 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+  import { ref } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
+  import { useAuthStore } from '@/stores/auth'
 
-const auth = useAuthStore()
-const route = useRoute()
-const router = useRouter()
-const isSignup = ref(false)
-const fullName = ref('')
-const email = ref('')
-const password = ref('')
-const confirmPassword = ref('')
-const errorMessage = ref('')
-const noticeMessage = ref('')
+  const auth = useAuthStore()
+  const route = useRoute()
+  const router = useRouter()
+  const isSignup = ref(false)
+  const fullName = ref('')
+  const email = ref('')
+  const password = ref('')
+  const confirmPassword = ref('')
+  const errorMessage = ref('')
+  const noticeMessage = ref('')
 
-async function submitForm() {
-  errorMessage.value = ''
-  noticeMessage.value = ''
+  async function submitForm () {
+    errorMessage.value = ''
+    noticeMessage.value = ''
 
-  if (isSignup.value) {
-    if (password.value.length < 8) {
-      errorMessage.value = 'Your password must be at least 8 characters.'
-      return
+    if (isSignup.value) {
+      if (password.value.length < 8) {
+        errorMessage.value = 'Your password must be at least 8 characters.'
+        return
+      }
+
+      if (password.value !== confirmPassword.value) {
+        errorMessage.value = 'Your passwords do not match.'
+        return
+      }
+
+      if (!fullName.value.trim()) {
+        errorMessage.value = 'Enter your name to create an account.'
+        return
+      }
+
+      const result = await auth.signup(email.value.trim(), password.value, fullName.value)
+      if (!result.success) {
+        errorMessage.value = auth.errorMessage || 'Your account could not be created.'
+        return
+      }
+      if (result.requiresEmailConfirmation) {
+        noticeMessage.value = 'Your account has been created. Please check your email and click the verification link to activate your account.'
+        isSignup.value = false
+        password.value = ''
+        confirmPassword.value = ''
+        return
+      }
+    } else {
+      const success = await auth.login(email.value.trim(), password.value)
+      if (!success) {
+        errorMessage.value = auth.errorMessage || 'That email or password is not recognized.'
+        return
+      }
     }
 
-    if (password.value !== confirmPassword.value) {
-      errorMessage.value = 'Your passwords do not match.'
-      return
+    let redirect = '/employee-registration'
+    if (auth.profile.registrationCompleted) {
+      if (auth.profile.approvalStatus !== 'approved' && auth.profile.role !== 'admin') {
+        redirect = '/pending-approval'
+      } else if (typeof route.query.redirect === 'string') {
+        redirect = route.query.redirect
+      } else {
+        redirect = '/overview'
+      }
     }
 
-    if (!fullName.value.trim()) {
-      errorMessage.value = 'Enter your name to create an account.'
-      return
-    }
+    router.push(redirect)
+  }
 
-    const result = await auth.signup(email.value.trim(), password.value, fullName.value)
-    if (!result.success) {
-      errorMessage.value = auth.errorMessage || 'Your account could not be created.'
+  async function sendPasswordReset () {
+    errorMessage.value = ''
+    noticeMessage.value = ''
+    if (!email.value.trim()) {
+      errorMessage.value = 'Enter your email address first.'
       return
     }
-    if (result.requiresEmailConfirmation) {
-      noticeMessage.value = 'Check your email for a verification link, then return here to sign in.'
-      isSignup.value = false
-      return
-    }
-  } else {
-    const success = await auth.login(email.value.trim(), password.value)
-    if (!success) {
-      errorMessage.value = auth.errorMessage || 'That email or password is not recognized.'
-      return
+    if (await auth.resetPassword(email.value.trim())) {
+      noticeMessage.value = 'If an account exists for that address, a password reset link has been sent.'
+    } else {
+      errorMessage.value = auth.errorMessage
     }
   }
 
-  const redirect = typeof route.query.redirect === 'string'
-    ? route.query.redirect
-    : '/overview'
-
-  router.push(redirect)
-}
-
-async function sendPasswordReset() {
-  errorMessage.value = ''
-  noticeMessage.value = ''
-  if (!email.value.trim()) {
-    errorMessage.value = 'Enter your email address first.'
-    return
+  function toggleMode () {
+    isSignup.value = !isSignup.value
+    errorMessage.value = ''
+    noticeMessage.value = ''
   }
-  if (await auth.resetPassword(email.value.trim())) {
-    noticeMessage.value = 'If an account exists for that address, a password reset link has been sent.'
-  } else {
-    errorMessage.value = auth.errorMessage
-  }
-}
-
-function toggleMode() {
-  isSignup.value = !isSignup.value
-  errorMessage.value = ''
-  noticeMessage.value = ''
-}
 </script>
 
 <template>
@@ -117,28 +126,60 @@ function toggleMode() {
           <template v-if="isSignup">
             <label for="full-name">Full name</label>
 
-            <input id="full-name" v-model="fullName" autocomplete="name" placeholder="Alex Morgan" required type="text">
+            <input
+              id="full-name"
+              v-model="fullName"
+              autocomplete="name"
+              placeholder="Alex Morgan"
+              required
+              type="text"
+            >
           </template>
 
           <label for="email">Work email</label>
 
-          <input id="email" v-model="email" autocomplete="email" placeholder="you@company.com" required type="email">
+          <input
+            id="email"
+            v-model="email"
+            autocomplete="email"
+            placeholder="you@company.com"
+            required
+            type="email"
+          >
 
           <label for="password">Password</label>
 
-          <input id="password" v-model="password" autocomplete="current-password" placeholder="Enter your password"
-            required type="password">
+          <input
+            id="password"
+            v-model="password"
+            autocomplete="current-password"
+            placeholder="Enter your password"
+            required
+            type="password"
+          >
 
           <template v-if="isSignup">
             <label for="confirm-password">Confirm password</label>
 
-            <input id="confirm-password" v-model="confirmPassword" autocomplete="new-password"
-              placeholder="Repeat your password" required type="password">
+            <input
+              id="confirm-password"
+              v-model="confirmPassword"
+              autocomplete="new-password"
+              placeholder="Repeat your password"
+              required
+              type="password"
+            >
           </template>
 
           <p v-if="errorMessage" class="error-message" role="alert">
             <v-icon icon="mdi-alert-circle-outline" size="16" /> {{ errorMessage }}
           </p>
+
+          <router-link
+            v-if="!isSignup"
+            class="verification-link"
+            :to="{ path: '/verify-email', query: { email: email.trim() } }"
+          >Resend confirmation email</router-link>
 
           <p v-if="noticeMessage" class="success-message" role="status">
             <v-icon icon="mdi-check-circle-outline" size="16" /> {{ noticeMessage }}
@@ -409,6 +450,14 @@ input:focus {
 
 .mode-switch button:hover {
   color: #e5f38b;
+}
+.verification-link {
+  display: inline-block;
+  margin: 7px 0;
+  color: #d4ec66;
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .login-footer {

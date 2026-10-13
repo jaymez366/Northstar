@@ -3,6 +3,8 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
+const signupConfirmationRedirect = 'https://northstar-1k1.pages.dev/auth/callback'
+
 for (const legacyKey of [
   'northstar-authenticated',
   'northstar-account',
@@ -25,6 +27,28 @@ export type UserProfile = {
   avatarPath: string
   role: 'employee' | 'manager' | 'admin'
   status: 'active' | 'inactive'
+  approvalStatus: 'pending' | 'approved' | 'rejected'
+  registrationCompleted: boolean
+  employeeId: string
+  employmentType: string
+  officeLocation: string
+  dateOfJoining: string
+  managerName: string
+  bio: string
+}
+
+export type EmployeeRegistration = {
+  firstName: string
+  lastName: string
+  phoneNumber: string
+  department: string
+  jobTitle: string
+  employeeId: string
+  employmentType: string
+  officeLocation: string
+  dateOfJoining: string
+  managerName: string
+  bio: string
 }
 
 function emptyProfile (): UserProfile {
@@ -38,12 +62,21 @@ function emptyProfile (): UserProfile {
     photoUrl: '',
     avatarPath: '',
     role: 'employee',
-    status: 'active',
+    status: 'inactive',
+    approvalStatus: 'pending',
+    registrationCompleted: false,
+    employeeId: '',
+    employmentType: '',
+    officeLocation: '',
+    dateOfJoining: '',
+    managerName: '',
+    bio: '',
   }
 }
 
 export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false)
+  const emailVerified = ref(false)
   const isAdmin = ref(false)
   const userId = ref('')
   const userEmail = ref('')
@@ -137,6 +170,14 @@ export const useAuthStore = defineStore('auth', () => {
       avatarPath: ownProfile.avatar_url ?? '',
       role: ownProfile.role ?? 'employee',
       status: ownProfile.employment_status ?? 'active',
+      approvalStatus: ownProfile.approval_status ?? 'pending',
+      registrationCompleted: ownProfile.registration_completed ?? false,
+      employeeId: ownProfile.employee_id ?? '',
+      employmentType: ownProfile.employment_type ?? '',
+      officeLocation: ownProfile.office_location ?? '',
+      dateOfJoining: ownProfile.date_of_joining ?? '',
+      managerName: ownProfile.manager_name ?? '',
+      bio: ownProfile.bio ?? '',
     }
     let avatarLoadError = ''
     if (profile.value.avatarPath) {
@@ -155,6 +196,31 @@ export const useAuthStore = defineStore('auth', () => {
     errorMessage.value = avatarLoadError
   }
 
+  async function refreshProfile () {
+    if (userId.value) {
+      await loadProfile(userId.value)
+    }
+  }
+
+  async function resendSignupConfirmation (email: string) {
+    errorMessage.value = ''
+    if (!isSupabaseConfigured || !supabase) {
+      errorMessage.value = 'Resending a confirmation email requires a configured Northstar Supabase connection.'
+      return false
+    }
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: signupConfirmationRedirect },
+    })
+    if (error) {
+      errorMessage.value = error.message
+      console.error('Supabase signup confirmation resend failed', error)
+      return false
+    }
+    return true
+  }
+
   async function login (email: string, password: string) {
     errorMessage.value = ''
 
@@ -165,7 +231,9 @@ export const useAuthStore = defineStore('auth', () => {
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      errorMessage.value = 'That email or password is not recognized.'
+      errorMessage.value = error.code === 'email_not_confirmed'
+        ? 'Verify your email address before signing in. You can resend the confirmation email below.'
+        : 'That email or password is not recognized.'
       console.error('Supabase sign-in failed', error)
       return false
     }
@@ -175,6 +243,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     applySupabaseUser(data.user)
+    if (!data.user.email_confirmed_at) {
+      errorMessage.value = 'Verify your email address before signing in. You can resend the confirmation email below.'
+      await supabase.auth.signOut()
+      clearAuthenticatedUser()
+      return false
+    }
     await loadProfile(data.user.id)
     return true
   }
@@ -193,7 +267,10 @@ export const useAuthStore = defineStore('auth', () => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { first_name: firstName, last_name: lastName } },
+      options: {
+        data: { first_name: firstName, last_name: lastName },
+        emailRedirectTo: signupConfirmationRedirect,
+      },
     })
     if (error) {
       errorMessage.value = error.message
@@ -201,12 +278,46 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     if (data.session && data.user) {
+      if (!data.user.email_confirmed_at) {
+        await supabase.auth.signOut()
+        clearAuthenticatedUser()
+        errorMessage.value = 'Email confirmations are disabled for this Northstar Supabase project. Enable email confirmations to require verification before registration.'
+        return { success: false, requiresEmailConfirmation: false }
+      }
       applySupabaseUser(data.user)
       await loadProfile(data.user.id)
       return { success: true, requiresEmailConfirmation: false }
     }
 
     return { success: true, requiresEmailConfirmation: true }
+  }
+
+  async function completeEmployeeRegistration (registration: EmployeeRegistration) {
+    errorMessage.value = ''
+    if (!isSupabaseConfigured || !supabase || !userId.value || !emailVerified.value) {
+      errorMessage.value = 'Verify your Northstar email before completing employee registration.'
+      return false
+    }
+    const { error } = await supabase.rpc('complete_my_employee_registration', {
+      p_first_name: registration.firstName.trim(),
+      p_last_name: registration.lastName.trim(),
+      p_phone_number: registration.phoneNumber.trim(),
+      p_department: registration.department,
+      p_job_title: registration.jobTitle.trim(),
+      p_employee_id: registration.employeeId.trim() || null,
+      p_employment_type: registration.employmentType,
+      p_office_location: registration.officeLocation.trim(),
+      p_date_of_joining: registration.dateOfJoining || null,
+      p_manager_name: registration.managerName.trim() || null,
+      p_bio: registration.bio.trim() || null,
+    })
+    if (error) {
+      errorMessage.value = `Could not save your employee registration: ${error.message}`
+      console.error(errorMessage.value, error)
+      return false
+    }
+    await loadProfile(userId.value)
+    return profile.value.registrationCompleted
   }
 
   async function resetPassword (email: string) {
@@ -243,12 +354,13 @@ export const useAuthStore = defineStore('auth', () => {
   async function saveProfile (updates: Partial<UserProfile>) {
     errorMessage.value = ''
     if (isSupabaseConfigured && supabase && userId.value) {
-      const { error } = await supabase.from('profiles').update({
-        first_name: updates.firstName,
-        last_name: updates.lastName,
-        job_title: updates.jobTitle,
-        phone_number: updates.phone,
-      }).eq('id', userId.value)
+      const { error } = await supabase.rpc('update_my_employee_profile', {
+        p_first_name: updates.firstName ?? profile.value.firstName,
+        p_last_name: updates.lastName ?? profile.value.lastName,
+        p_job_title: updates.jobTitle ?? profile.value.jobTitle,
+        p_phone_number: updates.phone ?? profile.value.phone,
+        p_bio: updates.bio ?? profile.value.bio,
+      })
       if (error) {
         errorMessage.value = `Could not save your profile: ${error.message}`
         console.error(errorMessage.value, error)
@@ -304,9 +416,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function applySupabaseUser (user: User) {
+    if (userId.value && userId.value !== user.id) {
+      profile.value = emptyProfile()
+    }
     userId.value = user.id
     userEmail.value = user.email ?? ''
     isAuthenticated.value = true
+    emailVerified.value = Boolean(user.email_confirmed_at)
     isAdmin.value = false
     profile.value = {
       ...profile.value,
@@ -319,6 +435,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   function clearAuthenticatedUser () {
     isAuthenticated.value = false
+    emailVerified.value = false
     isAdmin.value = false
     userId.value = ''
     userEmail.value = ''
@@ -334,6 +451,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     isAuthenticated,
+    emailVerified,
     isAdmin,
     isPasswordRecovery,
     userId,
@@ -345,11 +463,14 @@ export const useAuthStore = defineStore('auth', () => {
     initialize,
     login,
     signup,
+    resendSignupConfirmation,
+    completeEmployeeRegistration,
     resetPassword,
     updatePassword,
     saveProfile,
     uploadAvatar,
     logout,
     dispose,
+    refreshProfile,
   }
 })

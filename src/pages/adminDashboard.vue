@@ -1,10 +1,37 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { isSupabaseConfigured } from '../../lib/supabase.js'
+import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
 const workspace = useWorkspaceStore()
 const employeeSearch = ref('')
+const pendingEmployees = ref<{
+  user_id: string
+  first_name: string
+  last_name: string
+  work_email: string
+  department: string
+  job_title: string
+  employee_id: string | null
+  employment_type: string
+  office_location: string
+  manager_name: string | null
+  bio: string | null
+}[]>([])
+const emailVerificationRecords = ref<{
+  user_id: string
+  first_name: string
+  last_name: string
+  email: string
+  email_verification_status: 'Verified' | 'Not Verified'
+  email_verified_at: string | null
+  account_created_at: string
+}[]>([])
+const approvalsLoading = ref(false)
+const approvalError = ref('')
+const updatingEmployeeId = ref('')
+const verificationRecordsLoading = ref(false)
+const verificationRecordsError = ref('')
 const filteredEmployees = computed(() => workspace.employees.filter(employee => `${employee.firstName} ${employee.lastName} ${employee.department}`.toLowerCase().includes(employeeSearch.value.trim().toLowerCase())))
 const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     id: item.id,
@@ -13,6 +40,68 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     actor: item.user,
     time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.createdAt)),
   })))
+
+  async function loadPendingEmployees () {
+    if (!isSupabaseConfigured || !supabase) {
+      approvalError.value = 'Employee approvals require a configured Northstar Supabase connection.'
+      return
+    }
+    approvalsLoading.value = true
+    approvalError.value = ''
+    const { data, error } = await supabase.rpc('admin_list_pending_employees')
+    approvalsLoading.value = false
+    if (error) {
+      approvalError.value = `Could not load employee registrations: ${error.message}`
+      console.error(approvalError.value, error)
+      return
+    }
+    pendingEmployees.value = data ?? []
+  }
+
+  async function loadEmailVerificationRecords () {
+    if (!isSupabaseConfigured || !supabase) {
+      verificationRecordsError.value = 'Email verification records require a configured Northstar Supabase connection.'
+      return
+    }
+    verificationRecordsLoading.value = true
+    verificationRecordsError.value = ''
+    const { data, error } = await supabase.rpc('admin_list_email_verification_status')
+    verificationRecordsLoading.value = false
+    if (error) {
+      verificationRecordsError.value = `Could not load email verification records: ${error.message}`
+      console.error(verificationRecordsError.value, error)
+      return
+    }
+    emailVerificationRecords.value = data ?? []
+  }
+
+  function formatRecordDate (value: string | null) {
+    if (!value) return '—'
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  }
+
+  async function setEmployeeApproval (userId: string, approvalStatus: 'approved' | 'rejected') {
+    if (!supabase || updatingEmployeeId.value) return
+    updatingEmployeeId.value = userId
+    approvalError.value = ''
+    const { error } = await supabase.rpc('admin_set_employee_approval', {
+      p_user_id: userId,
+      p_approval_status: approvalStatus,
+    })
+    updatingEmployeeId.value = ''
+    if (error) {
+      approvalError.value = `Could not update employee approval: ${error.message}`
+      console.error(approvalError.value, error)
+      return
+    }
+    await loadPendingEmployees()
+    await workspace.load()
+  }
+
+  onMounted(() => {
+    void loadPendingEmployees()
+    void loadEmailVerificationRecords()
+  })
 </script>
 
 <template>
@@ -43,6 +132,96 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
             icon="mdi-message-outline" /></span><small>CONVERSATIONS</small><strong>{{ workspace.conversations.length
           }}</strong><router-link to="/messages">View messages <v-icon icon="mdi-arrow-right" size="13" /></router-link>
       </article>
+    </section>
+
+    <section class="approval-panel surface-card">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">EMPLOYEE ONBOARDING</p>
+          <h2>Registrations awaiting approval</h2>
+        </div>
+        <button class="secondary-action" :disabled="approvalsLoading" type="button" @click="loadPendingEmployees">
+          Refresh
+        </button>
+      </div>
+
+      <p v-if="approvalError" class="approval-error" role="alert">{{ approvalError }}</p>
+      <p v-else-if="approvalsLoading" class="approval-empty">Loading employee registrations…</p>
+      <p v-else-if="pendingEmployees.length === 0" class="approval-empty">No employee registrations are awaiting approval.</p>
+
+      <div v-else class="approval-list">
+        <article v-for="employee in pendingEmployees" :key="employee.user_id" class="approval-item">
+          <div class="approval-details">
+            <strong>{{ employee.first_name }} {{ employee.last_name }}</strong>
+            <span>{{ employee.work_email }} · {{ employee.department }} · {{ employee.job_title }}</span>
+            <small>
+              {{ employee.employment_type }} · {{ employee.office_location }}
+              <template v-if="employee.employee_id"> · ID {{ employee.employee_id }}</template>
+              <template v-if="employee.manager_name"> · Manager {{ employee.manager_name }}</template>
+            </small>
+            <small v-if="employee.bio">{{ employee.bio }}</small>
+          </div>
+          <div class="approval-actions">
+            <button
+              class="approve-button"
+              :disabled="updatingEmployeeId === employee.user_id"
+              type="button"
+              @click="setEmployeeApproval(employee.user_id, 'approved')"
+            >Approve</button>
+            <button
+              class="reject-button"
+              :disabled="updatingEmployeeId === employee.user_id"
+              type="button"
+              @click="setEmployeeApproval(employee.user_id, 'rejected')"
+            >Reject</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="approval-panel surface-card">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">SUPABASE AUTHENTICATION</p>
+          <h2>Email verification status</h2>
+        </div>
+        <button class="secondary-action" :disabled="verificationRecordsLoading" type="button" @click="loadEmailVerificationRecords">
+          {{ verificationRecordsLoading ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </div>
+
+      <p v-if="verificationRecordsError" class="approval-error" role="alert">{{ verificationRecordsError }}</p>
+      <p v-else-if="verificationRecordsLoading" class="approval-empty">Loading email verification records…</p>
+      <p v-else-if="emailVerificationRecords.length === 0" class="approval-empty">No user accounts were found.</p>
+
+      <div v-else class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>USER ID</th>
+              <th>NAME</th>
+              <th>EMAIL</th>
+              <th>EMAIL STATUS</th>
+              <th>VERIFIED AT</th>
+              <th>ACCOUNT CREATED</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in emailVerificationRecords" :key="record.user_id">
+              <td>{{ record.user_id }}</td>
+              <td>{{ `${record.first_name} ${record.last_name}`.trim() || '—' }}</td>
+              <td>{{ record.email }}</td>
+              <td>
+                <span class="verification-status" :class="{ verified: record.email_verification_status === 'Verified' }">
+                  {{ record.email_verification_status }}
+                </span>
+              </td>
+              <td>{{ formatRecordDate(record.email_verified_at) }}</td>
+              <td>{{ formatRecordDate(record.account_created_at) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <div class="admin-columns">
@@ -117,6 +296,23 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
   font: 8px "DM Mono", monospace;
   letter-spacing: 1px;
 }
+.approval-panel { margin: 14px 0; padding: 18px; }
+.approval-panel .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.approval-panel h2 { margin: 4px 0 0; color: #18352d; font-size: 14px; }
+.approval-empty, .approval-error { color: #829187; font-size: 10px; }
+.approval-error { color: #a34c39; }
+.approval-list { display: grid; gap: 9px; margin-top: 14px; }
+.approval-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #edf0e9; padding-top: 12px; }
+.approval-details { display: grid; min-width: 0; gap: 5px; }
+.approval-details strong { color: #18352d; font-size: 11px; }
+.approval-details span, .approval-details small { color: #718178; font-size: 9px; line-height: 1.5; }
+.approval-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.approval-actions button { border: 0; padding: 8px 10px; cursor: pointer; font: 700 9px "Manrope", sans-serif; }
+.approve-button { background: #18352d; color: #f5f6ee; }
+.reject-button { background: #fae6de; color: #a44c38; }
+.approval-actions button:disabled { cursor: wait; opacity: .6; }
+.verification-status { color: #a34c39; font-weight: 700; }
+.verification-status.verified { color: #4b8058; }
 
 .admin-stats {
   display: grid;
@@ -345,6 +541,7 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
 }
 
 @media (max-width: 560px) {
+  .approval-item { align-items: flex-start; flex-direction: column; }
   .admin-stats {
     grid-template-columns: repeat(2, 1fr);
   }

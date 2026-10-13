@@ -15,6 +15,7 @@
     jobTitle: auth.profile.jobTitle ?? '',
     department: auth.profile.department ?? '',
     phone: auth.profile.phone ?? '',
+    bio: auth.profile.bio ?? '',
   })
 
   async function saveProfile () {
@@ -24,6 +25,7 @@
       jobTitle: form.jobTitle.trim(),
       department: form.department,
       phone: form.phone.trim(),
+      bio: form.bio.trim(),
       photoUrl: photoUrl.value,
     })
     if (!savedProfile) {
@@ -104,7 +106,14 @@
           <label>Phone number<input v-model="form.phone" placeholder="+1 (555) 000-0000" :readonly="!editing" type="tel"></label>
           <label>Job title<input v-model="form.jobTitle" placeholder="Your role" :readonly="!editing"></label>
           <label>Department<select v-model="form.department" :disabled="!editing || isSupabaseConfigured"><option value="">Select department</option><option v-for="name in ['People', 'Communications', 'Engineering', 'Finance', 'Operations', 'Customer Success', 'Security']" :key="name">{{ name }}</option></select></label>
+          <label>Employee ID<input :value="auth.profile.employeeId || 'Not provided'" readonly></label>
+          <label>Employment type<input :value="auth.profile.employmentType || 'Not provided'" readonly></label>
+          <label>Office location<input :value="auth.profile.officeLocation || 'Not provided'" readonly></label>
+          <label>Date of joining<input :value="auth.profile.dateOfJoining || 'Not provided'" readonly></label>
+          <label>Manager<input :value="auth.profile.managerName || 'Not provided'" readonly></label>
         </div>
+
+        <label class="bio-field">Short introduction<textarea v-model="form.bio" :readonly="!editing" maxlength="500" rows="3" /></label>
 
         <div v-if="editing" class="form-actions"><button class="secondary-action" type="button" @click="editing = false">Cancel</button><button class="primary-action" type="submit"><v-icon icon="mdi-content-save-outline" size="16" /> Save changes</button></div>
       </section>
@@ -135,6 +144,9 @@
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
 .form-grid label { display: grid; gap: 7px; color: #52645a; font-size: 10px; font-weight: 700; }
 .form-grid input, .form-grid select { width: 100%; min-height: 39px; border: 1px solid #dce4d8; border-radius: 0; padding: 0 11px; background: #fff; color: #18352d; font: 11px "Manrope", sans-serif; }
+.bio-field { display: grid; gap: 6px; margin-top: 14px; color: #52645a; font-size: 10px; font-weight: 700; }
+.bio-field textarea { min-height: 74px; border: 1px solid #dce4d9; padding: 9px 11px; background: #fbfcf9; color: #18352d; font: 11px/1.6 "Manrope", sans-serif; resize: vertical; }
+.bio-field textarea[readonly] { border-color: transparent; padding-left: 0; background: transparent; }
 .form-grid input:read-only, .form-grid select:disabled { background: #f6f7f3; color: #718178; }
 .form-grid label small { color: #94a097; font-size: 8px; font-weight: 400; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
