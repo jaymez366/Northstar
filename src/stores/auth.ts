@@ -147,7 +147,6 @@ export const useAuthStore = defineStore('auth', () => {
     const { data, error } = await supabase.rpc('get_my_profile')
 
     if (error) {
-      isAdmin.value = false
       errorMessage.value = `Could not load your profile from Supabase: ${error.message}`
       console.error(errorMessage.value, error)
       return
@@ -155,7 +154,6 @@ export const useAuthStore = defineStore('auth', () => {
 
     const ownProfile = data?.[0]
     if (!ownProfile) {
-      isAdmin.value = false
       errorMessage.value = 'Your Supabase account has no profile yet. Apply the profile trigger SQL in Supabase.'
       return
     }

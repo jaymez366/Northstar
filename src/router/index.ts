@@ -167,6 +167,7 @@ function getRegistrationRedirect (to: RouteLocationNormalized, auth: AuthStore):
     to.meta.requiresAuth
     && auth.isAuthenticated
     && auth.emailVerified
+    && !auth.isAdmin
     && !auth.profile.registrationCompleted
     && !to.meta.allowIncompleteRegistration
   ) {
@@ -210,6 +211,9 @@ function getLoginRedirect (to: RouteLocationNormalized, auth: AuthStore): RouteL
   if (to.path === '/login' && auth.isAuthenticated) {
     if (!auth.emailVerified) {
       return { path: '/verify-email', query: { email: auth.userEmail } }
+    }
+    if (auth.isAdmin) {
+      return { path: typeof to.query.redirect === 'string' ? to.query.redirect : '/admin' }
     }
     if (!auth.profile.registrationCompleted) {
       return '/employee-registration'
