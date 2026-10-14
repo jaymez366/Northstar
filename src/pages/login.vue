@@ -55,7 +55,9 @@
     }
 
     let redirect = '/employee-registration'
-    if (auth.profile.registrationCompleted) {
+    if (auth.isAdmin) {
+      redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/admin'
+    } else if (auth.profile.registrationCompleted) {
       if (auth.profile.approvalStatus !== 'approved' && !auth.isAdmin) {
         redirect = '/pending-approval'
       } else if (typeof route.query.redirect === 'string') {
