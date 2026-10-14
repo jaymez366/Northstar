@@ -230,10 +230,21 @@ export const useAuthStore = defineStore('auth', () => {
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      errorMessage.value = error.code === 'email_not_confirmed'
-        ? 'Verify your email address before signing in. You can resend the confirmation email below.'
-        : 'That email or password is not recognized.'
-      console.error('Supabase sign-in failed', error)
+      const errorText = error.message.toLowerCase()
+      if (error.code === 'email_not_confirmed') {
+        errorMessage.value = 'Verify your email address before signing in. You can resend the confirmation email below.'
+      } else if (errorText.includes('invalid path specified in request url') || error.status === 404) {
+        errorMessage.value = 'Northstar could not reach the Supabase authentication endpoint. Check the project URL configuration and try again.'
+      } else if (!error.status || error.status >= 500) {
+        errorMessage.value = 'Northstar could not contact the authentication service. Please try again shortly.'
+      } else {
+        errorMessage.value = 'That email or password is not recognized.'
+      }
+      console.error('Supabase sign-in request failed', {
+        endpoint: '/auth/v1/token?grant_type=password',
+        status: error.status,
+        code: error.code ?? 'unknown',
+      })
       return false
     }
     if (!data.user) {
