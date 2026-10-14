@@ -1,10 +1,11 @@
 <script setup lang="ts">
   import { onMounted, ref } from 'vue'
-  import { useRoute } from 'vue-router'
+  import { useRoute, useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
 
   const auth = useAuthStore()
   const route = useRoute()
+  const router = useRouter()
   const email = ref(typeof route.query.email === 'string' ? route.query.email : '')
   const busy = ref(false)
   const message = ref('')
@@ -40,11 +41,19 @@
     }
 
     email.value = auth.userEmail
+    await auth.refreshProfile()
     callbackState.value = 'success'
-    const signedOut = await auth.logout()
-    message.value = signedOut
-      ? 'Your email has been verified successfully. You can now sign in.'
-      : 'Your email has been verified successfully. You can now continue to Northstar.'
+    message.value = 'Your email has been verified successfully.'
+
+    let destination = '/pending-approval'
+    if (auth.isAdmin) {
+      destination = '/admin'
+    } else if (auth.profile.registrationCompleted && auth.profile.approvalStatus === 'approved') {
+      destination = '/overview'
+    } else if (!auth.profile.registrationCompleted) {
+      destination = '/employee-registration'
+    }
+    await router.replace(destination)
   }
 
   async function resendConfirmation () {

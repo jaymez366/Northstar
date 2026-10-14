@@ -273,6 +273,11 @@ export const useAuthStore = defineStore('auth', () => {
     })
     if (error) {
       errorMessage.value = error.message
+      console.error('Supabase signup request failed', {
+        endpoint: '/auth/v1/signup',
+        status: error.status,
+        code: error.code ?? 'unknown',
+      })
       return { success: false, requiresEmailConfirmation: false }
     }
 
