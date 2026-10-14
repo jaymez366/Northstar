@@ -1,7 +1,11 @@
 <template>
   <v-app>
     <v-main>
-      <WorkspaceLayout v-if="route.meta.requiresAuth">
+      <AdminLayout v-if="route.meta.requiresAdmin">
+        <router-view />
+      </AdminLayout>
+
+      <WorkspaceLayout v-else-if="route.meta.requiresAuth">
         <router-view />
       </WorkspaceLayout>
 
@@ -12,6 +16,7 @@
 
 <script lang="ts" setup>
   import { useRoute } from 'vue-router'
+  import AdminLayout from '@/components/AdminLayout.vue'
   import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 
   const route = useRoute()

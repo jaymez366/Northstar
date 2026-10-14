@@ -7,6 +7,7 @@
 // Composables
 import { createRouter, createWebHistory, type RouteLocationNormalized, type RouteLocationRaw } from 'vue-router'
 import AdminDashboard from '@/pages/adminDashboard.vue'
+import AdminLogin from '@/pages/adminLogin.vue'
 import Announcements from '@/pages/announcements.vue'
 import Departments from '@/pages/departments.vue'
 import DisasterManagement from '@/pages/disasterManagement.vue'
@@ -91,6 +92,10 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: '/admin-login',
+      component: AdminLogin,
+    },
+    {
       path: '/start-conversation',
       component: StartConversation,
       meta: { requiresAuth: true },
@@ -142,6 +147,13 @@ type AuthStore = ReturnType<typeof useAuthStore>
 function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore): RouteLocationRaw | undefined {
   if (to.meta.authCallback) {
     return
+  }
+
+  if (to.meta.requiresAdmin && !auth.isAuthenticated) {
+    return {
+      path: '/admin-login',
+      query: { redirect: '/admin' },
+    }
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
