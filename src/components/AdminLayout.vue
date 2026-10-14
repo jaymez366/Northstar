@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { onMounted } from 'vue'
+  import { onMounted, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
   import { useWorkspaceStore } from '@/stores/workspace'
@@ -9,8 +9,23 @@
   const router = useRouter()
 
   onMounted(() => {
-    void workspace.load()
+    void ensureAdminSession()
   })
+
+  watch(() => [auth.isAuthenticated, auth.isAdmin], ([isAuthenticated, isAdmin]) => {
+    if (!isAuthenticated || !isAdmin) {
+      void router.replace('/admin-login')
+    }
+  })
+
+  async function ensureAdminSession () {
+    await auth.initialize()
+    if (!auth.isAuthenticated || !auth.isAdmin) {
+      await router.replace('/admin-login')
+      return
+    }
+    void workspace.load()
+  }
 
   async function logout () {
     if (await auth.logout()) {
@@ -88,14 +103,14 @@
 
     <main class="admin-content">
       <v-alert
-        v-if="workspace.backendError"
+        v-if="workspace.backendError || auth.errorMessage"
         class="admin-data-alert"
         closable
         type="warning"
         variant="tonal"
-        @click:close="workspace.backendError = ''"
+        @click:close="workspace.backendError = ''; auth.errorMessage = ''"
       >
-        {{ workspace.backendError }}
+        {{ workspace.backendError || auth.errorMessage }}
         <template #append>
           <v-btn size="small" variant="text" @click="workspace.load">Retry</v-btn>
         </template>

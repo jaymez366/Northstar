@@ -207,11 +207,13 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
       <p v-else-if="verificationRecordsLoading" class="approval-empty">Loading email verification records…</p>
       <p v-else-if="emailVerificationRecords.length === 0" class="approval-empty">No user accounts were found.</p>
 
-      <div v-else class="table-scroll">
+      <div v-else class="table-scroll verification-table">
         <table class="data-table">
+
+          <caption class="sr-only">Employee email verification status from Supabase Authentication</caption>
+
           <thead>
             <tr>
-              <th>USER ID</th>
               <th>NAME</th>
               <th>EMAIL</th>
               <th>EMAIL STATUS</th>
@@ -219,21 +221,68 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
               <th>ACCOUNT CREATED</th>
             </tr>
           </thead>
+
           <tbody>
             <tr v-for="record in emailVerificationRecords" :key="record.user_id">
-              <td>{{ record.user_id }}</td>
               <td>{{ `${record.first_name} ${record.last_name}`.trim() || '—' }}</td>
+
               <td>{{ record.email }}</td>
+
               <td>
-                <span class="verification-status" :class="{ verified: record.email_verification_status === 'Verified' }">
+                <span
+                  class="verification-status"
+                  :class="{ verified: record.email_verification_status === 'Verified' }"
+                >
                   {{ record.email_verification_status }}
                 </span>
               </td>
+
               <td>{{ formatRecordDate(record.email_verified_at) }}</td>
+
               <td>{{ formatRecordDate(record.account_created_at) }}</td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div
+        v-if="!verificationRecordsLoading && !verificationRecordsError && emailVerificationRecords.length > 0"
+        class="verification-cards"
+      >
+        <article
+          v-for="record in emailVerificationRecords"
+          :key="record.user_id"
+          class="verification-card"
+        >
+          <div class="verification-card-heading">
+            <div>
+              <strong>{{ `${record.first_name} ${record.last_name}`.trim() || 'Name unavailable' }}</strong>
+
+              <a :href="`mailto:${record.email}`">{{ record.email }}</a>
+            </div>
+
+            <span
+              class="verification-status"
+              :class="{ verified: record.email_verification_status === 'Verified' }"
+            >
+              {{ record.email_verification_status }}
+            </span>
+          </div>
+
+          <dl>
+            <div>
+              <dt>Verified at</dt>
+
+              <dd>{{ formatRecordDate(record.email_verified_at) }}</dd>
+            </div>
+
+            <div>
+              <dt>Account created</dt>
+
+              <dd>{{ formatRecordDate(record.account_created_at) }}</dd>
+            </div>
+          </dl>
+        </article>
       </div>
     </section>
 
@@ -326,6 +375,33 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
 .approval-actions button:disabled { cursor: wait; opacity: .6; }
 .verification-status { color: #a34c39; font-weight: 700; }
 .verification-status.verified { color: #4b8058; }
+.verification-cards { display: none; }
+.verification-card {
+  border-top: 1px solid #edf0e9;
+  padding: 12px 0;
+}
+.verification-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.verification-card-heading > div { display: grid; min-width: 0; gap: 4px; }
+.verification-card-heading strong { color: #18352d; font-size: 11px; }
+.verification-card-heading a { overflow-wrap: anywhere; color: #718178; font-size: 10px; }
+.verification-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
+.verification-card dl > div { display: grid; gap: 4px; }
+.verification-card dt { color: #829187; font-size: 9px; }
+.verification-card dd { margin: 0; color: #52645a; font-size: 10px; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
 
 .admin-stats {
   display: grid;
@@ -555,6 +631,8 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
 
 @media (max-width: 560px) {
   .approval-item { align-items: flex-start; flex-direction: column; }
+  .verification-table { display: none; }
+  .verification-cards { display: grid; }
   .admin-stats {
     grid-template-columns: repeat(2, 1fr);
   }
