@@ -1,16 +1,34 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
-  import { useRouter } from 'vue-router'
+  import { onMounted, ref } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
 
   const auth = useAuthStore()
+  const route = useRoute()
   const router = useRouter()
   const password = ref('')
   const confirmPassword = ref('')
+  const resetEmail = ref(typeof route.query.email === 'string' ? route.query.email : '')
   const errorMessage = ref('')
+  const noticeMessage = ref('')
+  const checkingSession = ref(true)
+  const recoveryReady = ref(false)
+  const busy = ref(false)
+  const resendBusy = ref(false)
+
+  onMounted(async () => {
+    await auth.initialize()
+    recoveryReady.value = auth.isAuthenticated && auth.isPasswordRecovery
+    checkingSession.value = false
+    if (!recoveryReady.value) {
+      errorMessage.value = 'This password reset link is invalid or has expired. Request a new link to continue.'
+    }
+  })
 
   async function updatePassword () {
+    if (busy.value) return
     errorMessage.value = ''
+    noticeMessage.value = ''
     if (password.value.length < 8) {
       errorMessage.value = 'Your password must be at least 8 characters.'
       return
@@ -19,10 +37,36 @@
       errorMessage.value = 'Your passwords do not match.'
       return
     }
-    if (await auth.updatePassword(password.value)) {
-      router.replace('/overview')
-    } else {
-      errorMessage.value = auth.errorMessage
+    busy.value = true
+    try {
+      if (await auth.updatePassword(password.value)) {
+        await router.replace({ path: '/login', query: { reset: 'success' } })
+      } else {
+        errorMessage.value = auth.errorMessage
+      }
+    } finally {
+      busy.value = false
+    }
+  }
+
+  async function resendResetLink () {
+    if (resendBusy.value) return
+    errorMessage.value = ''
+    noticeMessage.value = ''
+    if (!resetEmail.value.trim()) {
+      errorMessage.value = 'Enter the email address for your Northstar account.'
+      return
+    }
+
+    resendBusy.value = true
+    try {
+      if (await auth.resetPassword(resetEmail.value.trim())) {
+        noticeMessage.value = 'If an account exists for that address, a password reset link has been sent.'
+      } else {
+        errorMessage.value = auth.errorMessage
+      }
+    } finally {
+      resendBusy.value = false
     }
   }
 </script>
@@ -37,9 +81,14 @@
     <section class="reset-card">
       <p class="section-overline">ACCOUNT SECURITY</p>
       <h1>Choose a new<br><em>password.</em></h1>
-      <p class="reset-copy">Choose a strong password to secure your Northstar account.</p>
 
-      <form @submit.prevent="updatePassword">
+      <p class="reset-copy">
+        {{ recoveryReady ? 'Choose a strong password to secure your Northstar account.' : 'Use a valid password-reset link to continue.' }}
+      </p>
+
+      <p v-if="checkingSession" class="reset-copy" role="status">Checking your secure recovery session…</p>
+
+      <form v-else-if="recoveryReady" @submit.prevent="updatePassword">
         <label for="new-password">New password</label>
 
         <input
@@ -62,7 +111,45 @@
         >
 
         <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
-        <button class="submit-button" type="submit">Update password <v-icon icon="mdi-arrow-right" size="17" /></button>
+
+        <button class="submit-button" :disabled="busy" type="submit">
+          <v-progress-circular
+            v-if="busy"
+            aria-label="Updating password"
+            indeterminate
+            size="18"
+            width="2"
+          />
+
+          <template v-else>Update password <v-icon icon="mdi-arrow-right" size="17" /></template>
+        </button>
+      </form>
+
+      <form v-else @submit.prevent="resendResetLink">
+        <label for="reset-email">Account email</label>
+
+        <input
+          id="reset-email"
+          v-model="resetEmail"
+          autocomplete="email"
+          required
+          type="email"
+        >
+
+        <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
+        <p v-if="noticeMessage" class="success-message" role="status">{{ noticeMessage }}</p>
+
+        <button class="submit-button" :disabled="resendBusy" type="submit">
+          <v-progress-circular
+            v-if="resendBusy"
+            aria-label="Sending reset link"
+            indeterminate
+            size="18"
+            width="2"
+          />
+
+          <template v-else>Request a new reset link <v-icon icon="mdi-email-fast-outline" size="17" /></template>
+        </button>
       </form>
 
       <router-link class="return-link" to="/login">Return to sign in</router-link>
@@ -89,6 +176,9 @@ input { width: 100%; border: 1px solid #557064; padding: 13px; background: #2447
 input:focus { outline: 2px solid #d4ec66; outline-offset: 2px; }
 .error-message { color: #ffab91; font-size: 10px; }
 .submit-button { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; border: 0; padding: 14px 16px; background: #d4ec66; color: #18352d; cursor: pointer; font: 700 11px "Manrope", sans-serif; }
+.submit-button:disabled { cursor: wait; opacity: .7; }
+.error-message { color: #ffab91; font-size: 10px; line-height: 1.6; }
+.success-message { color: #d4ec66; font-size: 10px; line-height: 1.6; }
 .return-link { display: block; margin-top: 20px; color: #d4ec66; text-align: center; text-decoration: none; font-size: 10px; }
 @media (max-width: 760px) { .reset-page { display: block; padding: 20px; } .reset-card { margin: 12vh auto 0; padding: 28px 22px; } }
 </style>

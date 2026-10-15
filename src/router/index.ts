@@ -117,7 +117,6 @@ const router = createRouter({
     {
       path: '/reset-password',
       component: PasswordReset,
-      meta: { requiresPasswordRecovery: true },
     },
     {
       path: '/verify-email',
@@ -144,6 +143,36 @@ const router = createRouter({
 
 type AuthStore = ReturnType<typeof useAuthStore>
 
+function requiresEmployeeProfile (to: RouteLocationNormalized, auth: AuthStore) {
+  return to.meta.requiresAuth && auth.isAuthenticated && auth.emailVerified && !auth.isAdmin
+}
+
+function needsProfileLoad (to: RouteLocationNormalized, auth: AuthStore) {
+  return requiresEmployeeProfile(to, auth) && !auth.profileLoaded
+}
+
+function needsRegistration (to: RouteLocationNormalized, auth: AuthStore) {
+  return requiresEmployeeProfile(to, auth)
+    && auth.profileLoaded
+    && !auth.employeeRegistrationComplete
+    && !to.meta.allowIncompleteRegistration
+}
+
+function awaitsApproval (to: RouteLocationNormalized, auth: AuthStore) {
+  return requiresEmployeeProfile(to, auth)
+    && auth.employeeRegistrationComplete
+    && auth.profile.approvalStatus === 'pending'
+    && !to.meta.allowPendingApproval
+}
+
+function hasRejectedRegistration (to: RouteLocationNormalized, auth: AuthStore) {
+  return requiresEmployeeProfile(to, auth)
+    && auth.employeeRegistrationComplete
+    && auth.profile.approvalStatus === 'rejected'
+    && !to.meta.allowPendingApproval
+    && !to.meta.allowIncompleteRegistration
+}
+
 function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore): RouteLocationRaw | undefined {
   if (to.meta.authCallback) {
     return
@@ -164,7 +193,7 @@ function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore
   }
 
   if (to.meta.allowUnverified && auth.isAuthenticated && auth.emailVerified) {
-    return auth.profile.registrationCompleted
+    return auth.employeeRegistrationComplete
       ? (auth.profile.approvalStatus === 'approved' || auth.isAdmin ? '/overview' : '/pending-approval')
       : '/employee-registration'
   }
@@ -175,30 +204,27 @@ function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore
 }
 
 function getRegistrationRedirect (to: RouteLocationNormalized, auth: AuthStore): RouteLocationRaw | undefined {
-  if (
-    to.meta.requiresAuth
-    && auth.isAuthenticated
-    && auth.emailVerified
-    && !auth.isAdmin
-    && !auth.profile.registrationCompleted
-    && !to.meta.allowIncompleteRegistration
-  ) {
+  if (needsProfileLoad(to, auth)) {
+    return { path: '/login', query: { profileError: 'true' } }
+  }
+
+  if (needsRegistration(to, auth)) {
     return '/employee-registration'
   }
 
-  if (
-    to.meta.requiresAuth
-    && auth.isAuthenticated
-    && auth.emailVerified
-    && auth.profile.registrationCompleted
-    && auth.profile.approvalStatus !== 'approved'
-    && !auth.isAdmin
-    && !to.meta.allowPendingApproval
-  ) {
+  if (awaitsApproval(to, auth)) {
     return '/pending-approval'
   }
 
-  if (to.path === '/employee-registration' && auth.profile.registrationCompleted) {
+  if (hasRejectedRegistration(to, auth)) {
+    return '/pending-approval'
+  }
+
+  if (
+    to.path === '/employee-registration'
+    && auth.employeeRegistrationComplete
+    && auth.profile.approvalStatus !== 'rejected'
+  ) {
     return auth.profile.approvalStatus === 'approved' || auth.isAdmin
       ? '/overview'
       : '/pending-approval'
@@ -227,7 +253,10 @@ function getLoginRedirect (to: RouteLocationNormalized, auth: AuthStore): RouteL
     if (auth.isAdmin) {
       return { path: typeof to.query.redirect === 'string' ? to.query.redirect : '/admin' }
     }
-    if (!auth.profile.registrationCompleted) {
+    if (!auth.profileLoaded) {
+      return
+    }
+    if (!auth.employeeRegistrationComplete) {
       return '/employee-registration'
     }
     if (auth.profile.approvalStatus !== 'approved' && !auth.isAdmin) {

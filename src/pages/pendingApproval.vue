@@ -61,6 +61,14 @@
           <v-icon icon="mdi-refresh" size="16" />
         </button>
 
+        <router-link
+          v-if="auth.profile.approvalStatus === 'rejected'"
+          class="secondary-action resubmit-action"
+          to="/employee-registration"
+        >
+          Update and resubmit registration
+        </router-link>
+
         <button class="secondary-action" type="button" @click="signOut">Sign out</button>
       </div>
     </section>
@@ -82,4 +90,5 @@ h1 em { color: #e16b4c; font-style: normal; }
 .approval-error { color: #a34c39; font-size: 10px; }
 .approval-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 23px; }
 .approval-actions button { min-height: 39px; font-size: 9px; }
+.resubmit-action { display: inline-flex; min-height: 39px; align-items: center; text-decoration: none; }
 </style>

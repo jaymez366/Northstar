@@ -23,25 +23,26 @@
 
     busy.value = true
     errorMessage.value = ''
-    const authenticated = await auth.login(email.value.trim(), password.value)
-    if (!authenticated) {
-      errorMessage.value = auth.errorMessage || 'Unable to sign in to the Northstar Admin Portal.'
-      busy.value = false
-      return
-    }
+    try {
+      const authenticated = await auth.login(email.value.trim(), password.value)
+      if (!authenticated) {
+        errorMessage.value = auth.errorMessage || 'Unable to sign in to the Northstar Admin Portal.'
+        return
+      }
 
-    if (!auth.isAdmin) {
-      const signedOut = await auth.logout()
-      errorMessage.value = signedOut
-        ? 'This confirmed account is not authorized for the Northstar Admin Portal.'
-        : `This account is not authorized for the Northstar Admin Portal. ${auth.errorMessage}`
-      busy.value = false
-      return
-    }
+      if (!auth.isAdmin) {
+        const signedOut = await auth.logout()
+        errorMessage.value = signedOut
+          ? 'This confirmed account is not authorized for the Northstar Admin Portal.'
+          : `This account is not authorized for the Northstar Admin Portal. ${auth.errorMessage}`
+        return
+      }
 
-    password.value = ''
-    busy.value = false
-    await router.replace('/admin')
+      password.value = ''
+      await router.replace('/admin')
+    } finally {
+      busy.value = false
+    }
   }
 </script>
 
@@ -104,7 +105,8 @@
             width="2"
           />
 
-          <template v-else>Sign in to Admin Portal <v-icon icon="mdi-arrow-right" size="17" /></template>
+          <span>{{ busy ? 'Signing in…' : 'Sign in to Admin Portal' }}</span>
+          <v-icon v-if="!busy" icon="mdi-arrow-right" size="17" />
         </button>
       </form>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
 
@@ -13,75 +13,128 @@
   const confirmPassword = ref('')
   const errorMessage = ref('')
   const noticeMessage = ref('')
+  const busy = ref(false)
+  const resetBusy = ref(false)
+  const showPasswordResetForm = ref(false)
+  const resetEmail = ref('')
+  const submitButtonLabel = computed(() => {
+    if (busy.value) {
+      return isSignup.value ? 'Creating account…' : 'Signing in…'
+    }
+    return isSignup.value ? 'Create account' : 'Enter workspace'
+  })
+
+  onMounted(() => {
+    if (route.query.reset === 'success') {
+      noticeMessage.value = 'Your password has been reset. Sign in with your new password.'
+    }
+  })
 
   async function submitForm () {
+    if (busy.value) return
+
+    busy.value = true
     errorMessage.value = ''
     noticeMessage.value = ''
 
-    if (isSignup.value) {
-      if (password.value.length < 8) {
-        errorMessage.value = 'Your password must be at least 8 characters.'
-        return
-      }
+    try {
+      if (isSignup.value) {
+        if (password.value.length < 8) {
+          errorMessage.value = 'Your password must be at least 8 characters.'
+          return
+        }
 
-      if (password.value !== confirmPassword.value) {
-        errorMessage.value = 'Your passwords do not match.'
-        return
-      }
+        if (password.value !== confirmPassword.value) {
+          errorMessage.value = 'Your passwords do not match.'
+          return
+        }
 
-      if (!fullName.value.trim()) {
-        errorMessage.value = 'Enter your name to create an account.'
-        return
-      }
+        if (!fullName.value.trim()) {
+          errorMessage.value = 'Enter your name to create an account.'
+          return
+        }
 
-      const result = await auth.signup(email.value.trim(), password.value, fullName.value)
-      if (!result.success) {
-        errorMessage.value = auth.errorMessage || 'Your account could not be created.'
-        return
-      }
-      if (result.requiresEmailConfirmation) {
-        noticeMessage.value = 'Your account has been created. Please check your email and click the verification link to activate your account.'
-        isSignup.value = false
-        password.value = ''
-        confirmPassword.value = ''
-        return
-      }
-    } else {
-      const success = await auth.login(email.value.trim(), password.value)
-      if (!success) {
-        errorMessage.value = auth.errorMessage || 'That email or password is not recognized.'
-        return
-      }
-    }
-
-    let redirect = '/employee-registration'
-    if (auth.isAdmin) {
-      redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/admin'
-    } else if (auth.profile.registrationCompleted) {
-      if (auth.profile.approvalStatus !== 'approved' && !auth.isAdmin) {
-        redirect = '/pending-approval'
-      } else if (typeof route.query.redirect === 'string') {
-        redirect = route.query.redirect
+        const result = await auth.signup(email.value.trim(), password.value, fullName.value)
+        if (!result.success) {
+          errorMessage.value = auth.errorMessage || 'Your account could not be created.'
+          return
+        }
+        if (result.requiresEmailConfirmation) {
+          noticeMessage.value = 'If this address is eligible, a confirmation link will be sent. Check your inbox and spam folder.'
+          isSignup.value = false
+          password.value = ''
+          confirmPassword.value = ''
+          return
+        }
       } else {
-        redirect = '/overview'
+        const success = await auth.login(email.value.trim(), password.value)
+        if (!success) {
+          errorMessage.value = auth.errorMessage || 'Sign in could not be completed.'
+          return
+        }
       }
-    }
 
-    router.push(redirect)
+      let redirect = '/employee-registration'
+      if (auth.isAdmin) {
+        redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/admin'
+      } else if (auth.employeeRegistrationComplete) {
+        if (auth.profile.approvalStatus !== 'approved') {
+          redirect = '/pending-approval'
+        } else if (typeof route.query.redirect === 'string') {
+          redirect = route.query.redirect
+        } else {
+          redirect = '/overview'
+        }
+      }
+
+      await router.push(redirect)
+    } finally {
+      busy.value = false
+    }
   }
 
   async function sendPasswordReset () {
+    if (resetBusy.value) return
     errorMessage.value = ''
     noticeMessage.value = ''
-    if (!email.value.trim()) {
-      errorMessage.value = 'Enter your email address first.'
+    if (!resetEmail.value.trim()) {
+      errorMessage.value = 'Enter the email address for your Northstar account.'
       return
     }
-    if (await auth.resetPassword(email.value.trim())) {
-      noticeMessage.value = 'If an account exists for that address, a password reset link has been sent.'
-    } else {
-      errorMessage.value = auth.errorMessage
+
+    resetBusy.value = true
+    try {
+      if (await auth.resetPassword(resetEmail.value.trim())) {
+        noticeMessage.value = 'If an account exists for that address, a password reset link has been sent.'
+      } else {
+        errorMessage.value = auth.errorMessage
+      }
+    } finally {
+      resetBusy.value = false
     }
+  }
+
+  async function retryProfileLoad () {
+    await auth.refreshProfile()
+    if (!auth.profileLoaded) {
+      errorMessage.value = auth.errorMessage || 'Your employee profile is temporarily unavailable. Please try again.'
+      return
+    }
+    errorMessage.value = ''
+    let destination = '/employee-registration'
+    if (auth.isAdmin) {
+      destination = '/admin'
+    } else if (auth.employeeRegistrationComplete) {
+      destination = auth.profile.approvalStatus === 'approved' ? '/overview' : '/pending-approval'
+    }
+    await router.replace(destination)
+  }
+
+  function openPasswordReset () {
+    resetEmail.value = email.value.trim()
+    showPasswordResetForm.value = !showPasswordResetForm.value
+    errorMessage.value = ''
+    noticeMessage.value = ''
   }
 
   function toggleMode () {
@@ -173,9 +226,14 @@
             >
           </template>
 
-          <p v-if="errorMessage" class="error-message" role="alert">
-            <v-icon icon="mdi-alert-circle-outline" size="16" /> {{ errorMessage }}
+          <p v-if="errorMessage || auth.errorMessage" class="error-message" role="alert">
+            <v-icon icon="mdi-alert-circle-outline" size="16" /> {{ errorMessage || auth.errorMessage }}
           </p>
+
+          <div v-if="auth.isAuthenticated && !auth.profileLoaded && auth.errorMessage" class="profile-retry">
+            <span>Sign-in worked, but we could not retrieve your employee profile.</span>
+            <button type="button" @click="retryProfileLoad">Retry profile lookup</button>
+          </div>
 
           <router-link
             v-if="!isSignup"
@@ -187,18 +245,61 @@
             <v-icon icon="mdi-check-circle-outline" size="16" /> {{ noticeMessage }}
           </p>
 
-          <button class="submit-button" type="submit">
-            {{ isSignup ? 'Create account' : 'Enter workspace' }}
-            <v-icon icon="mdi-arrow-right" size="18" />
+          <button class="submit-button" :disabled="busy" type="submit">
+            <v-progress-circular
+              v-if="busy"
+              aria-label="Please wait"
+              indeterminate
+              size="18"
+              width="2"
+            />
+
+            <span>{{ submitButtonLabel }}</span>
+
+            <template v-if="!busy">
+              <v-icon icon="mdi-arrow-right" size="18" />
+            </template>
           </button>
         </form>
 
-        <button v-if="!isSignup" class="reset-link" type="button" @click="sendPasswordReset">Forgot your
-          password?</button>
+        <button
+          v-if="!isSignup"
+          class="reset-link"
+          type="button"
+          @click="openPasswordReset"
+        >{{ showPasswordResetForm ? 'Close password reset' : 'Forgot your password?' }}</button>
+
+        <form
+          v-if="!isSignup && showPasswordResetForm"
+          class="password-reset-form"
+          @submit.prevent="sendPasswordReset"
+        >
+          <label for="reset-email">Email for password reset</label>
+
+          <input
+            id="reset-email"
+            v-model="resetEmail"
+            autocomplete="email"
+            required
+            type="email"
+          >
+
+          <button class="secondary-submit-button" :disabled="resetBusy" type="submit">
+            <v-progress-circular
+              v-if="resetBusy"
+              aria-label="Sending reset link"
+              indeterminate
+              size="16"
+              width="2"
+            />
+
+            <template v-else>Send password reset link</template>
+          </button>
+        </form>
 
         <p class="mode-switch">
           {{ isSignup ? 'Already have an account?' : "Don't have an account?" }}
-          <button type="button" @click="toggleMode">
+          <button :disabled="busy" type="button" @click="toggleMode">
             {{ isSignup ? 'Sign in' : 'Sign up' }}
           </button>
         </p>
@@ -406,6 +507,24 @@ input:focus {
   line-height: 1.5;
 }
 
+.profile-retry {
+  display: grid;
+  gap: 8px;
+  color: #ffab91;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.profile-retry button {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #d4ec66;
+  cursor: pointer;
+  font: 700 10px "Manrope", sans-serif;
+}
+
 .reset-link {
   display: block;
   margin: 15px auto 0;
@@ -430,8 +549,50 @@ input:focus {
   font: 700 12px "Manrope", sans-serif;
 }
 
-.submit-button:hover {
+.submit-button:hover:not(:disabled) {
   background: #e5f38b;
+}
+
+.submit-button:disabled,
+.secondary-submit-button:disabled,
+.mode-switch button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.password-reset-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.password-reset-form label {
+  color: #bdcbbf;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.password-reset-form input {
+  min-height: 42px;
+  border: 1px solid #557064;
+  padding: 0 11px;
+  background: #24473d;
+  color: #f3f5ef;
+  font: 12px "Manrope", sans-serif;
+}
+
+.secondary-submit-button {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #91a881;
+  padding: 8px 12px;
+  background: transparent;
+  color: #d4ec66;
+  cursor: pointer;
+  font: 700 10px "Manrope", sans-serif;
 }
 
 .mode-switch {

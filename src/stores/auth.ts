@@ -1,9 +1,9 @@
 import type { User } from '@supabase/supabase-js'
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { isSupabaseConfigured, supabase, supabaseConfigurationError } from '../../lib/supabase.js'
 
-const signupConfirmationRedirect = 'https://northstar-1k1.pages.dev/auth/callback'
+const signupConfirmationRedirect = () => `${window.location.origin}/auth/callback`
 const administratorEmail = 'northstaradmin34@gmail.com'
 
 for (const legacyKey of [
@@ -84,9 +84,21 @@ export const useAuthStore = defineStore('auth', () => {
   const userFirstName = ref('')
   const isPasswordRecovery = ref(false)
   const profile = ref<UserProfile>(emptyProfile())
+  const profileLoaded = ref(false)
+  const employeeRegistrationComplete = computed(() => profile.value.registrationCompleted
+    && Boolean(
+      profile.value.firstName.trim()
+      && profile.value.lastName.trim()
+      && profile.value.phone.trim()
+      && profile.value.department.trim()
+      && profile.value.jobTitle.trim()
+      && profile.value.employmentType.trim()
+      && profile.value.officeLocation.trim(),
+    ))
   const ready = ref(false)
   const errorMessage = ref('')
   let initialization: Promise<void> | null = null
+  let profileLoad: { userId: string, promise: Promise<void> } | null = null
   let authSubscription: { unsubscribe: () => void } | null = null
 
   async function initialize () {
@@ -105,19 +117,6 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
 
-      const { data, error } = await supabase.auth.getSession()
-      if (error) {
-        errorMessage.value = `Could not restore your Supabase session: ${error.message}`
-        console.error(errorMessage.value, error)
-        clearAuthenticatedUser()
-      } else if (data.session) {
-        applySupabaseUser(data.session.user)
-        isPasswordRecovery.value = window.location.hash.includes('type=recovery')
-        await loadProfile(data.session.user.id)
-      } else {
-        clearAuthenticatedUser()
-      }
-
       const { data: authState } = supabase.auth.onAuthStateChange((event, session) => {
         if (event === 'PASSWORD_RECOVERY') {
           isPasswordRecovery.value = true
@@ -134,6 +133,19 @@ export const useAuthStore = defineStore('auth', () => {
         }
       })
       authSubscription = authState.subscription
+
+      const { data, error } = await supabase.auth.getSession()
+      if (error) {
+        errorMessage.value = `Could not restore your Supabase session: ${error.message}`
+        console.error(errorMessage.value, error)
+        clearAuthenticatedUser()
+      } else if (data.session) {
+        applySupabaseUser(data.session.user)
+        isPasswordRecovery.value ||= window.location.hash.includes('type=recovery')
+        await loadProfile(data.session.user.id)
+      } else {
+        clearAuthenticatedUser()
+      }
       ready.value = true
     })()
 
@@ -144,11 +156,34 @@ export const useAuthStore = defineStore('auth', () => {
     if (!supabase || !isSupabaseConfigured || id !== userId.value) {
       return
     }
+    if (profileLoad?.userId === id) {
+      return profileLoad.promise
+    }
+
+    const promise = loadProfileRecord(id)
+    profileLoad = { userId: id, promise }
+    try {
+      await promise
+    } finally {
+      if (profileLoad?.promise === promise) {
+        profileLoad = null
+      }
+    }
+  }
+
+  async function loadProfileRecord (id: string) {
+    if (!supabase || !isSupabaseConfigured || id !== userId.value) {
+      return
+    }
+    profileLoaded.value = false
     const { data, error } = await supabase.rpc('get_my_profile')
 
     if (error) {
       errorMessage.value = `Could not load your profile from Supabase: ${error.message}`
       console.error(errorMessage.value, error)
+      return
+    }
+    if (id !== userId.value) {
       return
     }
 
@@ -190,8 +225,12 @@ export const useAuthStore = defineStore('auth', () => {
         profile.value.photoUrl = avatar.signedUrl
       }
     }
+    if (id !== userId.value) {
+      return
+    }
     userFirstName.value = profile.value.firstName
     isAdmin.value = isDesignatedAdministrator()
+    profileLoaded.value = true
     errorMessage.value = avatarLoadError
   }
 
@@ -207,14 +246,21 @@ export const useAuthStore = defineStore('auth', () => {
       errorMessage.value = 'Resending a confirmation email requires a configured Northstar Supabase connection.'
       return false
     }
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email,
-      options: { emailRedirectTo: signupConfirmationRedirect },
+    const { data, error } = await supabase.functions.invoke<{
+      status: 'accepted'
+    }>('resend-confirmation', {
+      body: {
+        email: email.trim(),
+        emailRedirectTo: signupConfirmationRedirect(),
+      },
     })
     if (error) {
-      errorMessage.value = error.message
+      errorMessage.value = 'We could not process that request right now. Please wait a moment and try again.'
       console.error('Supabase signup confirmation resend failed', error)
+      return false
+    }
+    if (data?.status !== 'accepted') {
+      errorMessage.value = 'We could not process that request right now. Please try again later.'
       return false
     }
     return true
@@ -260,6 +306,9 @@ export const useAuthStore = defineStore('auth', () => {
       return false
     }
     await loadProfile(data.user.id)
+    if (!profileLoaded.value && !isAdmin.value) {
+      return false
+    }
     return true
   }
 
@@ -279,7 +328,7 @@ export const useAuthStore = defineStore('auth', () => {
       password,
       options: {
         data: { first_name: firstName, last_name: lastName },
-        emailRedirectTo: signupConfirmationRedirect,
+        emailRedirectTo: signupConfirmationRedirect(),
       },
     })
     if (error) {
@@ -344,7 +393,11 @@ export const useAuthStore = defineStore('auth', () => {
     const redirectTo = `${window.location.origin}/reset-password`
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
     if (error) {
-      errorMessage.value = error.message
+      errorMessage.value = 'We could not process that password reset request. Please try again later.'
+      console.error('Supabase password reset request failed', {
+        status: error.status,
+        code: error.code ?? 'unknown',
+      })
       return false
     }
     return true
@@ -352,6 +405,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function updatePassword (password: string) {
     errorMessage.value = ''
+    if (!isPasswordRecovery.value) {
+      errorMessage.value = 'Open the password reset link from your email before choosing a new password.'
+      return false
+    }
     if (!isSupabaseConfigured || !supabase) {
       errorMessage.value = 'Password updates require Supabase. Configure your Supabase environment variables first.'
       return false
@@ -362,7 +419,13 @@ export const useAuthStore = defineStore('auth', () => {
       console.error(errorMessage.value, error)
       return false
     }
-    isPasswordRecovery.value = false
+    const { error: signOutError } = await supabase.auth.signOut()
+    if (signOutError) {
+      errorMessage.value = `Your password was updated, but Northstar could not end the recovery session. Sign out before continuing.`
+      console.error('Could not end Supabase password recovery session', signOutError)
+      return false
+    }
+    clearAuthenticatedUser()
     return true
   }
 
@@ -433,6 +496,7 @@ export const useAuthStore = defineStore('auth', () => {
   function applySupabaseUser (user: User) {
     if (userId.value && userId.value !== user.id) {
       profile.value = emptyProfile()
+      profileLoaded.value = false
     }
     userId.value = user.id
     userEmail.value = user.email ?? ''
@@ -455,6 +519,7 @@ export const useAuthStore = defineStore('auth', () => {
     userId.value = ''
     userEmail.value = ''
     userFirstName.value = ''
+    profileLoaded.value = false
     profile.value = emptyProfile()
     isPasswordRecovery.value = false
   }
@@ -479,6 +544,8 @@ export const useAuthStore = defineStore('auth', () => {
     userEmail,
     userFirstName,
     profile,
+    profileLoaded,
+    employeeRegistrationComplete,
     ready,
     errorMessage,
     initialize,

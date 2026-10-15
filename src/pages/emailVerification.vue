@@ -48,9 +48,9 @@
     let destination = '/pending-approval'
     if (auth.isAdmin) {
       destination = '/admin'
-    } else if (auth.profile.registrationCompleted && auth.profile.approvalStatus === 'approved') {
+    } else if (auth.employeeRegistrationComplete && auth.profile.approvalStatus === 'approved') {
       destination = '/overview'
-    } else if (!auth.profile.registrationCompleted) {
+    } else if (!auth.employeeRegistrationComplete) {
       destination = '/employee-registration'
     }
     await router.replace(destination)
@@ -64,13 +64,16 @@
       return
     }
     busy.value = true
-    const sent = await auth.resendSignupConfirmation(email.value.trim())
-    busy.value = false
-    if (!sent) {
-      error.value = auth.errorMessage
-      return
+    try {
+      const sent = await auth.resendSignupConfirmation(email.value.trim())
+      if (!sent) {
+        error.value = auth.errorMessage
+        return
+      }
+      message.value = 'If an account exists for this address and still needs confirmation, a new link will be sent. Northstar processes up to five confirmation resend requests per account in any 30-minute window. Once you reach that limit, further requests are paused until the window passes.'
+    } finally {
+      busy.value = false
     }
-    message.value = 'If this address has a signup awaiting confirmation, Supabase has sent a new confirmation email.'
   }
 </script>
 

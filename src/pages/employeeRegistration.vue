@@ -25,7 +25,7 @@
     firstName: auth.profile.firstName,
     lastName: auth.profile.lastName,
     phoneNumber: auth.profile.phone,
-    department: '',
+    department: auth.profile.department,
     jobTitle: auth.profile.jobTitle,
     employeeId: auth.profile.employeeId,
     employmentType: '',
@@ -34,6 +34,7 @@
     managerName: auth.profile.managerName,
     bio: auth.profile.bio,
   })
+  const departmentOptions = [...new Set([...departments, auth.profile.department].filter(Boolean))]
 
   function validateForm () {
     if (!form.firstName.trim() || !form.lastName.trim() || !form.phoneNumber.trim()
@@ -138,7 +139,7 @@
 
             <select v-model="form.department" required>
               <option disabled value="">Choose a department</option>
-              <option v-for="department in departments" :key="department">{{ department }}</option>
+              <option v-for="department in departmentOptions" :key="department">{{ department }}</option>
             </select>
           </label>
 
