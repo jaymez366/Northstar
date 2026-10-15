@@ -54,22 +54,26 @@
     if (error.value || saving.value) return
 
     saving.value = true
-    const saved = await auth.completeEmployeeRegistration({ ...form })
-    if (!saved) {
-      error.value = auth.errorMessage || 'Your registration could not be saved.'
-      saving.value = false
-      return
-    }
-    if (photo.value) {
-      const uploaded = await auth.uploadAvatar(photo.value)
-      if (!uploaded) {
-        error.value = auth.errorMessage
-        saving.value = false
+    try {
+      const saved = await auth.completeEmployeeRegistration({ ...form })
+      if (!saved) {
+        error.value = auth.errorMessage || 'Your registration could not be saved.'
         return
       }
+      if (photo.value) {
+        const uploaded = await auth.uploadAvatar(photo.value)
+        if (!uploaded) {
+          error.value = auth.errorMessage || 'Your profile photo could not be uploaded.'
+          return
+        }
+      }
+      await router.replace({ path: '/pending-approval', query: { submitted: 'true' } })
+    } catch (submitError) {
+      error.value = auth.errorMessage || 'Your registration could not be saved. Please try again.'
+      console.error('Employee registration submission failed', submitError)
+    } finally {
+      saving.value = false
     }
-    saving.value = false
-    await router.replace('/pending-approval')
   }
 
   function selectPhoto (event: Event) {

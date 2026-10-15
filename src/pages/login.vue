@@ -19,9 +19,9 @@
   const resetEmail = ref('')
   const submitButtonLabel = computed(() => {
     if (busy.value) {
-      return isSignup.value ? 'Creating account…' : 'Signing in…'
+      return isSignup.value ? 'Creating Account…' : 'Signing In…'
     }
-    return isSignup.value ? 'Create account' : 'Enter workspace'
+    return isSignup.value ? 'Create Account' : 'Enter workspace'
   })
 
   onMounted(() => {
@@ -88,6 +88,9 @@
       }
 
       await router.push(redirect)
+    } catch (error) {
+      errorMessage.value = 'Northstar could not complete that request. Please try again.'
+      console.error('Employee authentication form failed', error)
     } finally {
       busy.value = false
     }

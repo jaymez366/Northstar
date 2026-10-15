@@ -1,24 +1,56 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
-  import { useRouter } from 'vue-router'
+  import { onMounted, onUnmounted, ref } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
 
   const auth = useAuthStore()
   const router = useRouter()
+  const route = useRoute()
   const checking = ref(false)
   const error = ref('')
+  const approvedNotice = ref(false)
+  let statusRefreshTimer: number | undefined
+
+  onMounted(() => {
+    if (route.query.submitted === 'true') {
+      approvedNotice.value = false
+    }
+    statusRefreshTimer = window.setInterval(() => {
+      void checkStatus()
+    }, 30_000)
+    if (auth.profile.approvalStatus === 'rejected') {
+      void auth.refreshRejectionReason()
+    }
+  })
+
+  onUnmounted(() => {
+    if (statusRefreshTimer !== undefined) {
+      window.clearInterval(statusRefreshTimer)
+    }
+  })
 
   async function checkStatus () {
+    if (checking.value) return
     checking.value = true
     error.value = ''
-    await auth.refreshProfile()
-    checking.value = false
-    if (auth.profile.approvalStatus === 'approved' || auth.isAdmin) {
-      await router.replace('/overview')
-    } else if (!auth.profile.registrationCompleted) {
-      await router.replace('/employee-registration')
-    } else if (auth.errorMessage) {
-      error.value = auth.errorMessage
+    try {
+      await auth.refreshProfile()
+      if (auth.profile.approvalStatus === 'approved' || auth.isAdmin) {
+        approvedNotice.value = true
+        await new Promise(resolve => window.setTimeout(resolve, 1800))
+        await router.replace('/overview')
+      } else if (auth.profile.registrationCompleted) {
+        if (auth.profile.approvalStatus === 'rejected') {
+          await auth.refreshRejectionReason()
+        }
+        if (auth.errorMessage) {
+          error.value = auth.errorMessage
+        }
+      } else {
+        await router.replace('/employee-registration')
+      }
+    } finally {
+      checking.value = false
     }
   }
 
@@ -39,8 +71,16 @@
       <h1>You're almost<br><em>in the Northstar.</em></h1>
 
       <p class="approval-copy">
-        <template v-if="auth.profile.approvalStatus === 'rejected'">
-          An administrator could not approve this registration. Please contact your Northstar administrator for next steps.
+        <template v-if="approvedNotice">
+          Congratulations! Your employee registration has been approved. You can now access Northstar.
+        </template>
+
+        <template v-else-if="route.query.submitted === 'true'">
+          Registration submitted successfully! Your profile is awaiting administrator review.
+        </template>
+
+        <template v-else-if="auth.profile.approvalStatus === 'rejected'">
+          Your employee registration was not approved. Please review the administrator's reason below and update your registration if needed.
         </template>
 
         <template v-else>
@@ -49,8 +89,12 @@
         </template>
       </p>
 
+      <p v-if="auth.profile.approvalStatus === 'rejected' && auth.profile.rejectionReason" class="rejection-copy">
+        <strong>Reason:</strong> {{ auth.profile.rejectionReason }}
+      </p>
+
       <p class="approval-state" :class="{ rejected: auth.profile.approvalStatus === 'rejected' }">
-        <i /> {{ auth.profile.approvalStatus === 'rejected' ? 'Registration not approved' : 'Awaiting administrator approval' }}
+        <i /> {{ approvedNotice ? 'Registration approved' : (auth.profile.approvalStatus === 'rejected' ? 'Registration not approved' : 'Awaiting administrator approval') }}
       </p>
 
       <p v-if="error" class="approval-error" role="alert">{{ error }}</p>
@@ -88,6 +132,7 @@ h1 em { color: #e16b4c; font-style: normal; }
 .approval-state.rejected { color: #a34c39; }
 .approval-state.rejected i { background: #b85138; }
 .approval-error { color: #a34c39; font-size: 10px; }
+.rejection-copy { border-left: 3px solid #b85138; padding: 10px 12px; background: #fff7f3; color: #843f31; font-size: 11px; line-height: 1.7; white-space: pre-wrap; }
 .approval-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 23px; }
 .approval-actions button { min-height: 39px; font-size: 9px; }
 .resubmit-action { display: inline-flex; min-height: 39px; align-items: center; text-decoration: none; }

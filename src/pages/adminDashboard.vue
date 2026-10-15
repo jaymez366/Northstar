@@ -1,41 +1,81 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useAuthStore } from '@/stores/auth'
-import { useWorkspaceStore } from '@/stores/workspace'
-import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
+  import { computed, onMounted, ref } from 'vue'
+  import { useAuthStore } from '@/stores/auth'
+  import { useWorkspaceStore } from '@/stores/workspace'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
-const workspace = useWorkspaceStore()
-const auth = useAuthStore()
-const employeeSearch = ref('')
-const pendingEmployees = ref<{
-  user_id: string
-  first_name: string
-  last_name: string
-  work_email: string
-  department: string
-  job_title: string
-  employee_id: string | null
-  employment_type: string
-  office_location: string
-  manager_name: string | null
-  bio: string | null
-}[]>([])
-const emailVerificationRecords = ref<{
-  user_id: string
-  first_name: string
-  last_name: string
-  email: string
-  email_verification_status: 'Verified' | 'Not Verified'
-  email_verified_at: string | null
-  account_created_at: string
-}[]>([])
-const approvalsLoading = ref(false)
-const approvalError = ref('')
-const updatingEmployeeId = ref('')
-const verificationRecordsLoading = ref(false)
-const verificationRecordsError = ref('')
-const filteredEmployees = computed(() => workspace.employees.filter(employee => `${employee.firstName} ${employee.lastName} ${employee.department}`.toLowerCase().includes(employeeSearch.value.trim().toLowerCase())))
-const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
+  const workspace = useWorkspaceStore()
+  const auth = useAuthStore()
+  const employeeSearch = ref('')
+  type EmployeeRegistrationRecord = {
+    user_id: string
+    first_name: string
+    last_name: string
+    email: string
+    phone_number: string | null
+    department: string | null
+    job_title: string | null
+    employee_id: string | null
+    employment_type: string | null
+    office_location: string | null
+    date_of_joining: string | null
+    manager_name: string | null
+    bio: string | null
+    registration_completed: boolean
+    approval_status: 'pending' | 'approved' | 'rejected'
+    employment_status: string
+    email_verification_status: 'Verified' | 'Not Verified'
+    email_verified_at: string | null
+    account_created_at: string
+    registration_submitted_at: string | null
+    registration_snapshot_is_original: boolean
+    rejection_reason: string | null
+    current_email: string
+    current_first_name: string
+    current_last_name: string
+    current_phone_number: string | null
+    current_department: string | null
+    current_job_title: string | null
+    current_employee_id: string | null
+    current_employment_type: string | null
+    current_office_location: string | null
+    current_date_of_joining: string | null
+    current_manager_name: string | null
+    current_bio: string | null
+  }
+  const employeeRecords = ref<EmployeeRegistrationRecord[]>([])
+  const emailVerificationRecords = ref<{
+    user_id: string
+    first_name: string
+    last_name: string
+    email: string
+    email_verification_status: 'Verified' | 'Not Verified'
+    email_verified_at: string | null
+    account_created_at: string
+  }[]>([])
+  const approvalsLoading = ref(false)
+  const approvalError = ref('')
+  const updatingEmployeeId = ref('')
+  const employeeFilter = ref<'pending' | 'approved' | 'rejected'>('pending')
+  const employeeTabs = [
+    { value: 'pending', label: 'Pending' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'rejected', label: 'Rejected' },
+  ] as const
+  const registrationSearch = ref('')
+  const selectedEmployee = ref<EmployeeRegistrationRecord | null>(null)
+  const rejectEmployee = ref<EmployeeRegistrationRecord | null>(null)
+  const rejectionReason = ref('')
+  const rejectionDialogError = ref('')
+  const verificationRecordsLoading = ref(false)
+  const verificationRecordsError = ref('')
+  const filteredEmployees = computed(() => workspace.employees.filter(employee => `${employee.firstName} ${employee.lastName} ${employee.department}`.toLowerCase().includes(employeeSearch.value.trim().toLowerCase())))
+  const filteredRegistrations = computed(() => employeeRecords.value
+    .filter(employee => employee.approval_status === employeeFilter.value)
+    .filter(employee => `${employee.first_name} ${employee.last_name} ${employee.email} ${employee.department ?? ''} ${employee.job_title ?? ''}`
+      .toLowerCase()
+      .includes(registrationSearch.value.trim().toLowerCase())))
+  const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     id: item.id,
     icon: item.action.includes('announcement') ? 'mdi-bullhorn-outline' : (item.action.includes('event') ? 'mdi-calendar-outline' : 'mdi-file-document-outline'),
     title: item.description,
@@ -43,7 +83,7 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.createdAt)),
   })))
 
-  async function loadPendingEmployees () {
+  async function loadEmployeeRecords () {
     if (!auth.isAdmin) {
       approvalError.value = 'Only the confirmed Northstar administrator account can access registration approvals.'
       return
@@ -54,14 +94,20 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     }
     approvalsLoading.value = true
     approvalError.value = ''
-    const { data, error } = await supabase.rpc('admin_list_pending_employees')
-    approvalsLoading.value = false
-    if (error) {
-      approvalError.value = `Could not load employee registrations: ${error.message}`
+    try {
+      const { data, error } = await supabase.rpc('northstar_admin_list_employee_registrations')
+      if (error) {
+        approvalError.value = `Could not load employee registrations: ${error.message}`
+        console.error(approvalError.value, error)
+        return
+      }
+      employeeRecords.value = data ?? []
+    } catch (error) {
+      approvalError.value = 'Could not load employee registrations. Please try again.'
       console.error(approvalError.value, error)
-      return
+    } finally {
+      approvalsLoading.value = false
     }
-    pendingEmployees.value = data ?? []
   }
 
   async function loadEmailVerificationRecords () {
@@ -75,14 +121,20 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     }
     verificationRecordsLoading.value = true
     verificationRecordsError.value = ''
-    const { data, error } = await supabase.rpc('admin_list_email_verification_status')
-    verificationRecordsLoading.value = false
-    if (error) {
-      verificationRecordsError.value = `Could not load email verification records: ${error.message}`
+    try {
+      const { data, error } = await supabase.rpc('northstar_admin_list_email_verification_status')
+      if (error) {
+        verificationRecordsError.value = `Could not load email verification records: ${error.message}`
+        console.error(verificationRecordsError.value, error)
+        return
+      }
+      emailVerificationRecords.value = data ?? []
+    } catch (error) {
+      verificationRecordsError.value = 'Could not load email verification records. Please try again.'
       console.error(verificationRecordsError.value, error)
-      return
+    } finally {
+      verificationRecordsLoading.value = false
     }
-    emailVerificationRecords.value = data ?? []
   }
 
   function formatRecordDate (value: string | null) {
@@ -90,29 +142,50 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   }
 
-  async function setEmployeeApproval (userId: string, approvalStatus: 'approved' | 'rejected') {
+  function openRejectionDialog (employee: EmployeeRegistrationRecord) {
+    rejectEmployee.value = employee
+    rejectionReason.value = ''
+    rejectionDialogError.value = ''
+  }
+
+  async function setEmployeeApproval (employee: EmployeeRegistrationRecord, approvalStatus: 'approved' | 'rejected') {
     if (!auth.isAdmin || !supabase || updatingEmployeeId.value) {
       approvalError.value = 'Only the confirmed Northstar administrator account can update registration approvals.'
       return
     }
-    updatingEmployeeId.value = userId
-    approvalError.value = ''
-    const { error } = await supabase.rpc('admin_set_employee_approval', {
-      p_user_id: userId,
-      p_approval_status: approvalStatus,
-    })
-    updatingEmployeeId.value = ''
-    if (error) {
-      approvalError.value = `Could not update employee approval: ${error.message}`
-      console.error(approvalError.value, error)
+    if (approvalStatus === 'rejected' && !rejectionReason.value.trim()) {
+      rejectionDialogError.value = 'Enter a rejection reason before confirming.'
       return
     }
-    await loadPendingEmployees()
-    await workspace.load()
+    updatingEmployeeId.value = employee.user_id
+    approvalError.value = ''
+    try {
+      const { error } = await supabase.rpc('northstar_admin_update_employee_registration_status', {
+        p_user_id: employee.user_id,
+        p_approval_status: approvalStatus,
+        p_rejection_reason: approvalStatus === 'rejected' ? rejectionReason.value.trim() : null,
+      })
+      if (error) {
+        approvalError.value = `Could not update employee approval: ${error.message}`
+        console.error(approvalError.value, error)
+        return
+      }
+      rejectEmployee.value = null
+      rejectionReason.value = ''
+      await loadEmployeeRecords()
+      if (approvalStatus === 'approved') {
+        await workspace.load()
+      }
+    } catch (error) {
+      approvalError.value = 'Could not update employee approval. Please try again.'
+      console.error(approvalError.value, error)
+    } finally {
+      updatingEmployeeId.value = ''
+    }
   }
 
   onMounted(() => {
-    void loadPendingEmployees()
+    void loadEmployeeRecords()
     void loadEmailVerificationRecords()
   })
 </script>
@@ -124,26 +197,68 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
         <p class="eyebrow">ADMINISTRATION</p>
         <h1>Admin dashboard</h1>
         <p>Organization activity and management shortcuts in one place.</p>
-      </div><span class="admin-badge"><v-icon icon="mdi-shield-check-outline" size="16" /> ADMIN WORKSPACE</span>
+      </div>
+
+      <span class="admin-badge"><v-icon icon="mdi-shield-check-outline" size="16" /> ADMIN WORKSPACE</span>
     </header>
 
     <section aria-label="Organization metrics" class="admin-stats">
-      <article class="surface-card"><span><v-icon icon="mdi-account-group-outline" /></span><small>TOTAL
-          EMPLOYEES</small><strong>{{ workspace.employees.length }}</strong><router-link to="/employees">View directory
+      <article class="surface-card"><span><v-icon icon="mdi-account-group-outline" /></span>
+
+        <small>TOTAL
+          EMPLOYEES</small>
+
+        <strong>{{ workspace.employees.length }}</strong>
+
+        <router-link to="/employees">View directory
           <v-icon icon="mdi-arrow-right" size="13" /></router-link></article>
-      <article class="surface-card"><span><v-icon icon="mdi-domain" /></span><small>DEPARTMENTS</small><strong>{{
-        workspace.departments.length }}</strong><router-link to="/departments">View departments <v-icon
-            icon="mdi-arrow-right" size="13" /></router-link></article>
+
+      <article class="surface-card"><span><v-icon icon="mdi-domain" /></span><small>DEPARTMENTS</small>
+
+        <strong>{{
+          workspace.departments.length }}</strong>
+
+        <router-link to="/departments">View departments <v-icon
+          icon="mdi-arrow-right"
+          size="13"
+        /></router-link></article>
+
       <article class="surface-card"><span><v-icon
-            icon="mdi-bullhorn-outline" /></span><small>ANNOUNCEMENTS</small><strong>{{ workspace.announcements.length
-          }}</strong><router-link to="/announcements">Manage updates <v-icon icon="mdi-arrow-right"
-            size="13" /></router-link></article>
-      <article class="surface-card"><span><v-icon icon="mdi-calendar-outline" /></span><small>UPCOMING
-          EVENTS</small><strong>{{ workspace.events.length }}</strong><router-link to="/events">Manage events <v-icon
-            icon="mdi-arrow-right" size="13" /></router-link></article>
+                                      icon="mdi-bullhorn-outline"
+                                    /></span>
+
+        <small>ANNOUNCEMENTS</small>
+
+        <strong>{{ workspace.announcements.length
+        }}</strong>
+
+        <router-link to="/announcements">Manage updates <v-icon
+          icon="mdi-arrow-right"
+          size="13"
+        /></router-link></article>
+
+      <article class="surface-card"><span><v-icon icon="mdi-calendar-outline" /></span>
+
+        <small>UPCOMING
+          EVENTS</small>
+
+        <strong>{{ workspace.events.length }}</strong>
+
+        <router-link to="/events">Manage events <v-icon
+          icon="mdi-arrow-right"
+          size="13"
+        /></router-link></article>
+
       <article class="surface-card"><span><v-icon
-            icon="mdi-message-outline" /></span><small>CONVERSATIONS</small><strong>{{ workspace.conversations.length
-          }}</strong><router-link to="/messages">View messages <v-icon icon="mdi-arrow-right" size="13" /></router-link>
+                                      icon="mdi-message-outline"
+                                    /></span>
+
+        <small>CONVERSATIONS</small>
+
+        <strong>{{ workspace.conversations.length
+        }}</strong>
+
+        <router-link to="/messages">View messages <v-icon icon="mdi-arrow-right" size="13" /></router-link>
       </article>
     </section>
 
@@ -151,46 +266,176 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
       <div class="panel-heading">
         <div>
           <p class="eyebrow">EMPLOYEE ONBOARDING</p>
-          <h2>Registrations awaiting approval</h2>
+          <h2>Employee registrations</h2>
         </div>
-        <button class="secondary-action" :disabled="approvalsLoading" type="button" @click="loadPendingEmployees">
-          Refresh
+
+        <button class="secondary-action" :disabled="approvalsLoading" type="button" @click="loadEmployeeRecords">
+          {{ approvalsLoading ? 'Refreshing…' : 'Refresh' }}
         </button>
       </div>
 
+      <div aria-label="Filter employee registrations by status" class="registration-tabs" role="tablist">
+        <button
+          v-for="tab in employeeTabs"
+          :key="tab.value"
+          :aria-selected="employeeFilter === tab.value"
+          :class="{ selected: employeeFilter === tab.value }"
+          role="tab"
+          type="button"
+          @click="employeeFilter = tab.value"
+        >
+          {{ tab.label }}
+          <span>{{ employeeRecords.filter(employee => employee.approval_status === tab.value).length }}</span>
+        </button>
+      </div>
+
+      <input
+        v-model="registrationSearch"
+        aria-label="Search employee registrations by name, email, department, or job title"
+        class="field-control registration-search"
+        placeholder="Search name, email, department, or job title"
+        type="search"
+      >
+
       <p v-if="approvalError" class="approval-error" role="alert">{{ approvalError }}</p>
       <p v-else-if="approvalsLoading" class="approval-empty">Loading employee registrations…</p>
-      <p v-else-if="pendingEmployees.length === 0" class="approval-empty">No employee registrations are awaiting approval.</p>
+
+      <p v-else-if="filteredRegistrations.length === 0" class="approval-empty">
+        {{ registrationSearch ? 'No registrations match your search.' : `No ${employeeFilter} employee registrations.` }}
+      </p>
 
       <div v-else class="approval-list">
-        <article v-for="employee in pendingEmployees" :key="employee.user_id" class="approval-item">
+        <article v-for="employee in filteredRegistrations" :key="employee.user_id" class="approval-item">
           <div class="approval-details">
             <strong>{{ employee.first_name }} {{ employee.last_name }}</strong>
-            <span>{{ employee.work_email }} · {{ employee.department }} · {{ employee.job_title }}</span>
+            <span>{{ employee.email }} · {{ employee.department || 'Department unavailable' }} · {{ employee.job_title || 'Job title unavailable' }}</span>
+
             <small>
-              {{ employee.employment_type }} · {{ employee.office_location }}
+              {{ employee.employment_type || 'Employment type unavailable' }} · {{ employee.office_location || 'Location unavailable' }}
               <template v-if="employee.employee_id"> · ID {{ employee.employee_id }}</template>
               <template v-if="employee.manager_name"> · Manager {{ employee.manager_name }}</template>
             </small>
-            <small v-if="employee.bio">{{ employee.bio }}</small>
+
+            <small v-if="employee.rejection_reason" class="rejection-reason">
+              Rejection reason: {{ employee.rejection_reason }}
+            </small>
           </div>
+
           <div class="approval-actions">
+            <button class="details-button" type="button" @click="selectedEmployee = employee">View Details</button>
+
             <button
+              v-if="employee.approval_status === 'pending'"
               class="approve-button"
               :disabled="updatingEmployeeId === employee.user_id"
               type="button"
-              @click="setEmployeeApproval(employee.user_id, 'approved')"
+              @click="setEmployeeApproval(employee, 'approved')"
             >Approve</button>
+
             <button
+              v-if="employee.approval_status === 'pending'"
               class="reject-button"
               :disabled="updatingEmployeeId === employee.user_id"
               type="button"
-              @click="setEmployeeApproval(employee.user_id, 'rejected')"
+              @click="openRejectionDialog(employee)"
             >Reject</button>
           </div>
         </article>
       </div>
     </section>
+
+    <v-dialog max-width="760" :model-value="Boolean(selectedEmployee)" @update:model-value="!$event && (selectedEmployee = null)">
+      <v-card v-if="selectedEmployee" class="employee-detail-dialog">
+        <v-card-title class="dialog-heading">
+          <span>Employee registration details</span>
+          <v-btn aria-label="Close employee details" icon="mdi-close" variant="text" @click="selectedEmployee = null" />
+        </v-card-title>
+
+        <v-card-text>
+          <div class="detail-summary">
+            <strong>{{ selectedEmployee.first_name }} {{ selectedEmployee.last_name }}</strong>
+            <span>{{ selectedEmployee.email }}</span>
+            <span class="registration-status" :class="selectedEmployee.approval_status">{{ selectedEmployee.approval_status }}</span>
+          </div>
+
+          <p v-if="selectedEmployee.rejection_reason" class="detail-rejection">
+            <strong>Rejection reason:</strong> {{ selectedEmployee.rejection_reason }}
+          </p>
+
+          <div class="detail-grid">
+            <section>
+              <h3>{{ selectedEmployee.registration_snapshot_is_original ? 'Originally submitted' : 'Available profile snapshot' }}</h3>
+
+              <dl>
+                <div><dt>First name</dt><dd>{{ selectedEmployee.first_name || '—' }}</dd></div>
+                <div><dt>Last name</dt><dd>{{ selectedEmployee.last_name || '—' }}</dd></div>
+                <div><dt>Email</dt><dd>{{ selectedEmployee.email || '—' }}</dd></div>
+                <div><dt>Phone</dt><dd>{{ selectedEmployee.phone_number || '—' }}</dd></div>
+                <div><dt>Department</dt><dd>{{ selectedEmployee.department || '—' }}</dd></div>
+                <div><dt>Job title</dt><dd>{{ selectedEmployee.job_title || '—' }}</dd></div>
+                <div><dt>Employee ID</dt><dd>{{ selectedEmployee.employee_id || '—' }}</dd></div>
+                <div><dt>Employment type</dt><dd>{{ selectedEmployee.employment_type || '—' }}</dd></div>
+                <div><dt>Office location</dt><dd>{{ selectedEmployee.office_location || '—' }}</dd></div>
+                <div><dt>Date of joining</dt><dd>{{ selectedEmployee.date_of_joining || '—' }}</dd></div>
+                <div><dt>Manager</dt><dd>{{ selectedEmployee.manager_name || '—' }}</dd></div>
+                <div><dt>Registration complete</dt><dd>{{ selectedEmployee.registration_completed ? 'Yes' : 'No' }}</dd></div>
+                <div><dt>Email verified</dt><dd>{{ selectedEmployee.email_verification_status }}</dd></div>
+                <div><dt>Email verified at</dt><dd>{{ formatRecordDate(selectedEmployee.email_verified_at) }}</dd></div>
+                <div><dt>Account created</dt><dd>{{ formatRecordDate(selectedEmployee.account_created_at) }}</dd></div>
+                <div><dt>Submitted at</dt><dd>{{ formatRecordDate(selectedEmployee.registration_submitted_at) }}</dd></div>
+                <div class="detail-bio"><dt>Bio</dt><dd>{{ selectedEmployee.bio || '—' }}</dd></div>
+              </dl>
+
+              <p v-if="!selectedEmployee.registration_snapshot_is_original" class="snapshot-note">
+                Historical submission values were not available when this feature was installed; these values are the earliest profile snapshot captured by the migration.
+              </p>
+            </section>
+
+            <section>
+              <h3>Current profile</h3>
+
+              <dl>
+                <div><dt>Email</dt><dd>{{ selectedEmployee.current_email || '—' }}</dd></div>
+                <div><dt>Phone</dt><dd>{{ selectedEmployee.current_phone_number || '—' }}</dd></div>
+                <div><dt>Department</dt><dd>{{ selectedEmployee.current_department || '—' }}</dd></div>
+                <div><dt>Job title</dt><dd>{{ selectedEmployee.current_job_title || '—' }}</dd></div>
+                <div><dt>Employee ID</dt><dd>{{ selectedEmployee.current_employee_id || '—' }}</dd></div>
+                <div><dt>Employment type</dt><dd>{{ selectedEmployee.current_employment_type || '—' }}</dd></div>
+                <div><dt>Office location</dt><dd>{{ selectedEmployee.current_office_location || '—' }}</dd></div>
+                <div><dt>Date of joining</dt><dd>{{ selectedEmployee.current_date_of_joining || '—' }}</dd></div>
+                <div><dt>Manager</dt><dd>{{ selectedEmployee.current_manager_name || '—' }}</dd></div>
+                <div class="detail-bio"><dt>Bio</dt><dd>{{ selectedEmployee.current_bio || '—' }}</dd></div>
+              </dl>
+            </section>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog max-width="500" :model-value="Boolean(rejectEmployee)" @update:model-value="!$event && (rejectEmployee = null)">
+      <v-card v-if="rejectEmployee" class="employee-detail-dialog">
+        <v-card-title>Reject registration</v-card-title>
+
+        <v-card-text>
+          <p>Enter the reason that will be saved and shown to {{ rejectEmployee.first_name }} {{ rejectEmployee.last_name }}.</p>
+          <label class="rejection-label" for="rejection-reason">Rejection reason <span>*</span></label>
+          <textarea id="rejection-reason" v-model="rejectionReason" maxlength="2000" rows="5" />
+          <p v-if="rejectionDialogError" class="approval-error" role="alert">{{ rejectionDialogError }}</p>
+        </v-card-text>
+
+        <v-card-actions>
+          <v-spacer />
+          <v-btn :disabled="updatingEmployeeId === rejectEmployee.user_id" variant="text" @click="rejectEmployee = null">Cancel</v-btn>
+
+          <v-btn
+            color="error"
+            :disabled="!rejectionReason.trim()"
+            :loading="updatingEmployeeId === rejectEmployee.user_id"
+            @click="setEmployeeApproval(rejectEmployee, 'rejected')"
+          >Confirm rejection</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <section class="approval-panel surface-card">
       <div class="panel-heading">
@@ -198,6 +443,7 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
           <p class="eyebrow">SUPABASE AUTHENTICATION</p>
           <h2>Email verification status</h2>
         </div>
+
         <button class="secondary-action" :disabled="verificationRecordsLoading" type="button" @click="loadEmailVerificationRecords">
           {{ verificationRecordsLoading ? 'Refreshing…' : 'Refresh' }}
         </button>
@@ -292,10 +538,18 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
           <div>
             <p class="eyebrow">PEOPLE</p>
             <h2>Employee management</h2>
-          </div><router-link to="/employees">Full directory <v-icon icon="mdi-arrow-right" size="14" /></router-link>
+          </div>
+
+          <router-link to="/employees">Full directory <v-icon icon="mdi-arrow-right" size="14" /></router-link>
         </div>
-        <input v-model="employeeSearch" aria-label="Search employee records" class="field-control"
-          placeholder="Search employees">
+
+        <input
+          v-model="employeeSearch"
+          aria-label="Search employee records"
+          class="field-control"
+          placeholder="Search employees"
+        >
+
         <div class="table-scroll">
           <table class="data-table">
             <thead>
@@ -305,14 +559,21 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
                 <th>STATUS</th>
               </tr>
             </thead>
+
             <tbody>
               <tr v-for="employee in filteredEmployees.slice(0, 6)" :key="employee.id">
                 <td><span class="table-employee"><i :style="{ background: employee.color }">{{ employee.initials
-                      }}</i><span><strong>{{ employee.firstName }} {{ employee.lastName }}</strong><small>{{
-                        employee.title }}</small></span></span></td>
+                                                 }}</i>
+
+                  <span><strong>{{ employee.firstName }} {{ employee.lastName }}</strong>
+
+                    <small>{{
+                      employee.title }}</small></span></span></td>
+
                 <td>{{ employee.department }}</td>
+
                 <td><span class="table-status" :class="{ online: employee.online }">{{ employee.online ? 'Online' :
-                    'Offline' }}</span></td>
+                  'Offline' }}</span></td>
               </tr>
             </tbody>
           </table>
@@ -326,11 +587,16 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
             <h2>What’s happening</h2>
           </div>
         </div>
+
         <div class="activity-list">
-          <article v-for="activity in displayedActivities" :key="activity.id"><span><v-icon :icon="activity.icon"
-                size="18" /></span>
+          <article v-for="activity in displayedActivities" :key="activity.id"><span><v-icon
+                                                                                :icon="activity.icon"
+                                                                                size="18"
+                                                                              /></span>
+
             <div><strong>{{ activity.title }}</strong><small>{{ activity.actor }} · {{ activity.time }}</small></div>
           </article>
+
           <p v-if="displayedActivities.length === 0" class="no-activity">No recent activity has been recorded.</p>
         </div>
       </section>
@@ -338,11 +604,26 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
 
     <section class="admin-links">
       <router-link class="surface-card admin-link-card" to="/announcements"><span><v-icon
-            icon="mdi-bullhorn-outline" /></span><strong>Announcement management</strong><small>Review and publish
-          company-wide updates</small><v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" /></router-link>
+                                                                              icon="mdi-bullhorn-outline"
+                                                                            /></span>
+
+        <strong>Announcement management</strong>
+
+        <small>Review and publish
+          company-wide updates</small>
+
+        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" /></router-link>
+
       <router-link class="surface-card admin-link-card" to="/departments"><span><v-icon
-            icon="mdi-domain" /></span><strong>Department management</strong><small>Review teams and their
-          members</small><v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" /></router-link>
+                                                                            icon="mdi-domain"
+                                                                          /></span>
+
+        <strong>Department management</strong>
+
+        <small>Review teams and their
+          members</small>
+
+        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" /></router-link>
     </section>
 
     <p v-if="!isSupabaseConfigured" class="admin-note">Configure the Northstar Supabase project to load organization data.</p>
@@ -363,6 +644,11 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
 .approval-panel h2 { margin: 4px 0 0; color: #18352d; font-size: 14px; }
 .approval-empty, .approval-error { color: #829187; font-size: 10px; }
 .approval-error { color: #a34c39; }
+.registration-tabs { display: flex; gap: 6px; margin: 15px 0 10px; border-bottom: 1px solid #e8ede5; }
+.registration-tabs button { display: flex; align-items: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px; background: transparent; color: #718178; cursor: pointer; font: 700 10px "Manrope", sans-serif; }
+.registration-tabs button.selected { border-bottom-color: #e16b4c; color: #18352d; }
+.registration-tabs button span { display: grid; min-width: 19px; height: 19px; place-items: center; border-radius: 50%; background: #eef2e8; font-size: 9px; }
+.registration-search { width: min(100%, 420px); margin: 5px 0 10px; }
 .approval-list { display: grid; gap: 9px; margin-top: 14px; }
 .approval-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #edf0e9; padding-top: 12px; }
 .approval-details { display: grid; min-width: 0; gap: 5px; }
@@ -370,9 +656,31 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
 .approval-details span, .approval-details small { color: #718178; font-size: 9px; line-height: 1.5; }
 .approval-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .approval-actions button { border: 0; padding: 8px 10px; cursor: pointer; font: 700 9px "Manrope", sans-serif; }
+.approval-actions .details-button { border: 1px solid #dce4d9; background: #fff; color: #52645a; }
 .approve-button { background: #18352d; color: #f5f6ee; }
 .reject-button { background: #fae6de; color: #a44c38; }
 .approval-actions button:disabled { cursor: wait; opacity: .6; }
+.rejection-reason { color: #a34c39 !important; }
+.employee-detail-dialog { color: #18352d; }
+.dialog-heading { display: flex; align-items: center; justify-content: space-between; }
+.detail-summary { display: grid; justify-items: start; gap: 5px; border-bottom: 1px solid #edf0e9; padding-bottom: 14px; }
+.detail-summary strong { font-size: 17px; }
+.detail-summary > span:not(.registration-status) { color: #718178; font-size: 12px; }
+.registration-status { border-radius: 20px; padding: 4px 9px; background: #fff2df; color: #94651e; font-size: 10px; font-weight: 700; text-transform: capitalize; }
+.registration-status.approved { background: #e8f3e8; color: #4b8058; }
+.registration-status.rejected { background: #fae6de; color: #a44c38; }
+.detail-rejection { border-left: 3px solid #c65e46; margin: 14px 0 0; padding: 8px 11px; background: #fff8f5; color: #843f31; font-size: 12px; white-space: pre-wrap; }
+.detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; padding-top: 16px; }
+.detail-grid h3 { margin: 0 0 9px; font-size: 12px; }
+.detail-grid dl { display: grid; gap: 9px; margin: 0; }
+.detail-grid dl > div { display: grid; gap: 3px; }
+.detail-grid dt { color: #829187; font-size: 10px; }
+.detail-grid dd { margin: 0; color: #334b3e; font-size: 11px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.detail-grid .detail-bio { padding-top: 4px; }
+.snapshot-note { color: #829187; font-size: 10px; line-height: 1.5; }
+.rejection-label { display: block; margin-bottom: 6px; color: #53665a; font-size: 11px; font-weight: 700; }
+.rejection-label span { color: #d35f46; }
+.employee-detail-dialog textarea { width: 100%; border: 1px solid #dce4d9; padding: 10px; color: #18352d; font: 12px/1.5 "Manrope", sans-serif; resize: vertical; }
 .verification-status { color: #a34c39; font-weight: 700; }
 .verification-status.verified { color: #4b8058; }
 .verification-cards { display: none; }
@@ -631,6 +939,10 @@ const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
 
 @media (max-width: 560px) {
   .approval-item { align-items: flex-start; flex-direction: column; }
+  .approval-actions { flex-wrap: wrap; }
+  .registration-tabs { overflow-x: auto; }
+  .registration-tabs button { flex: 0 0 auto; }
+  .detail-grid { grid-template-columns: 1fr; }
   .verification-table { display: none; }
   .verification-cards { display: grid; }
   .admin-stats {

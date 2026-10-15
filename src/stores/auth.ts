@@ -29,6 +29,7 @@ export type UserProfile = {
   role: 'employee' | 'manager' | 'admin'
   status: 'active' | 'inactive'
   approvalStatus: 'pending' | 'approved' | 'rejected'
+  rejectionReason: string
   registrationCompleted: boolean
   employeeId: string
   employmentType: string
@@ -65,6 +66,7 @@ function emptyProfile (): UserProfile {
     role: 'employee',
     status: 'inactive',
     approvalStatus: 'pending',
+    rejectionReason: '',
     registrationCompleted: false,
     employeeId: '',
     employmentType: '',
@@ -205,6 +207,7 @@ export const useAuthStore = defineStore('auth', () => {
       role: ownProfile.role ?? 'employee',
       status: ownProfile.employment_status ?? 'active',
       approvalStatus: ownProfile.approval_status ?? 'pending',
+      rejectionReason: ownProfile.rejection_reason ?? '',
       registrationCompleted: ownProfile.registration_completed ?? false,
       employeeId: ownProfile.employee_id ?? '',
       employmentType: ownProfile.employment_type ?? '',
@@ -238,6 +241,20 @@ export const useAuthStore = defineStore('auth', () => {
     if (userId.value) {
       await loadProfile(userId.value)
     }
+  }
+
+  async function refreshRejectionReason () {
+    if (!supabase || !userId.value || profile.value.approvalStatus !== 'rejected') {
+      return false
+    }
+    const { data, error } = await supabase.rpc('get_my_employee_rejection_reason')
+    if (error) {
+      errorMessage.value = `Could not load your registration decision: ${error.message}`
+      console.error(errorMessage.value, error)
+      return false
+    }
+    profile.value.rejectionReason = data ?? ''
+    return true
   }
 
   async function resendSignupConfirmation (email: string) {
@@ -380,8 +397,26 @@ export const useAuthStore = defineStore('auth', () => {
       console.error(errorMessage.value, error)
       return false
     }
-    await loadProfile(userId.value)
-    return profile.value.registrationCompleted
+    profile.value = {
+      ...profile.value,
+      firstName: registration.firstName.trim(),
+      lastName: registration.lastName.trim(),
+      phone: registration.phoneNumber.trim(),
+      department: registration.department,
+      jobTitle: registration.jobTitle.trim(),
+      employeeId: registration.employeeId.trim(),
+      employmentType: registration.employmentType,
+      officeLocation: registration.officeLocation.trim(),
+      dateOfJoining: registration.dateOfJoining,
+      managerName: registration.managerName.trim(),
+      bio: registration.bio.trim(),
+      approvalStatus: 'pending',
+      rejectionReason: '',
+      registrationCompleted: true,
+      status: 'inactive',
+    }
+    profileLoaded.value = true
+    return true
   }
 
   async function resetPassword (email: string) {
@@ -560,5 +595,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     dispose,
     refreshProfile,
+    refreshRejectionReason,
   }
 })
