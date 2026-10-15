@@ -1,0 +1,125 @@
+<script setup lang="ts">
+  import { computed, onMounted, ref } from 'vue'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
+
+  type Inquiry = { id: string, topic: string, status: string, created_at: string, updated_at: string }
+  type InquiryMessage = { id: string, sender_id: string, sender_name: string, content: string, created_at: string }
+
+  const inquiries = ref<Inquiry[]>([])
+  const selectedId = ref('')
+  const messages = ref<InquiryMessage[]>([])
+  const reply = ref('')
+  const loading = ref(false)
+  const sending = ref(false)
+  const error = ref('')
+  const selectedInquiry = computed(() => inquiries.value.find(inquiry => inquiry.id === selectedId.value))
+
+  async function loadInquiries () {
+    if (!isSupabaseConfigured || !supabase) return
+    loading.value = true
+    error.value = ''
+    const { data, error: loadError } = await supabase.rpc('northstar_list_my_support_inquiries')
+    if (loadError) {
+      error.value = `Could not load your support inquiries: ${loadError.message}`
+      console.error(error.value, loadError)
+    } else {
+      inquiries.value = data ?? []
+      if (!selectedId.value && inquiries.value[0]) selectedId.value = inquiries.value[0].id
+      if (selectedId.value) await loadMessages(selectedId.value)
+    }
+    loading.value = false
+  }
+
+  async function loadMessages (inquiryId: string) {
+    if (!supabase) return
+    selectedId.value = inquiryId
+    const { data, error: loadError } = await supabase.rpc('northstar_get_support_inquiry_messages', { p_inquiry_id: inquiryId })
+    if (loadError) {
+      error.value = `Could not load inquiry messages: ${loadError.message}`
+      console.error(error.value, loadError)
+    } else {
+      messages.value = data ?? []
+    }
+  }
+
+  async function sendReply () {
+    const content = reply.value.trim()
+    if (!selectedId.value || !content || sending.value || !supabase) return
+    sending.value = true
+    error.value = ''
+    const { error: sendError } = await supabase.rpc('northstar_reply_support_inquiry', {
+      p_inquiry_id: selectedId.value,
+      p_message: content,
+    })
+    if (sendError) {
+      error.value = `Could not send your reply: ${sendError.message}`
+      console.error(error.value, sendError)
+    } else {
+      reply.value = ''
+      await loadInquiries()
+    }
+    sending.value = false
+  }
+
+  function formatDate (value: string) {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  }
+
+  onMounted(() => { void loadInquiries() })
+</script>
+
+<template>
+  <main>
+    <header class="page-heading">
+      <div><p class="eyebrow">TALK TO AN EXPERT</p><h1>Support inquiries</h1><p>Read replies from the Northstar support team and continue the conversation.</p></div>
+      <button class="secondary-action" :disabled="loading" type="button" @click="loadInquiries">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
+    </header>
+
+    <p v-if="error" class="support-error" role="alert">{{ error }}</p>
+    <section class="support-layout surface-card">
+      <aside class="support-list">
+        <button v-for="inquiry in inquiries" :key="inquiry.id" class="support-item" :class="{ selected: selectedId === inquiry.id }" type="button" @click="loadMessages(inquiry.id)">
+          <strong>{{ inquiry.topic }}</strong><small>{{ inquiry.status }} · {{ formatDate(inquiry.created_at) }}</small>
+        </button>
+        <p v-if="!loading && inquiries.length === 0" class="support-empty">You have no support inquiries yet.</p>
+      </aside>
+
+      <section v-if="selectedInquiry" class="support-thread">
+        <h2>{{ selectedInquiry.topic }}</h2>
+        <div class="support-messages">
+          <article v-for="message in messages" :key="message.id" class="support-message">
+            <strong>{{ message.sender_name }}</strong><p>{{ message.content }}</p><time>{{ formatDate(message.created_at) }}</time>
+          </article>
+        </div>
+        <form class="support-reply" @submit.prevent="sendReply">
+          <textarea v-model="reply" aria-label="Reply to support inquiry" maxlength="5000" placeholder="Write a reply…" rows="3" />
+          <button class="primary-action" :disabled="!reply.trim() || sending" type="submit">
+            <v-progress-circular v-if="sending" aria-label="Sending reply" indeterminate size="16" width="2" />
+            {{ sending ? 'Sending…' : 'Send reply' }}
+          </button>
+        </form>
+      </section>
+      <section v-else class="support-empty support-thread">Select an inquiry to view messages.</section>
+    </section>
+  </main>
+</template>
+
+<style scoped>
+.support-layout { display: grid; min-height: 480px; grid-template-columns: 280px 1fr; overflow: hidden; }
+.support-list { border-right: 1px solid #e7ebe3; }
+.support-item { display: grid; width: 100%; gap: 7px; border: 0; border-bottom: 1px solid #edf0ea; padding: 15px; background: white; color: #18352d; cursor: pointer; text-align: left; }
+.support-item.selected { background: #f1f4eb; }
+.support-item small, .support-empty { color: #829187; font-size: 10px; }
+.support-thread { display: flex; min-width: 0; flex-direction: column; padding: 20px; }
+.support-thread h2 { margin: 0 0 15px; color: #18352d; font-size: 16px; }
+.support-messages { display: flex; flex: 1; flex-direction: column; gap: 12px; overflow-y: auto; }
+.support-message { border: 1px solid #e3e9dc; padding: 12px; background: #f8f9f6; }
+.support-message strong { color: #18352d; font-size: 11px; }
+.support-message p { margin: 6px 0; color: #52645a; font-size: 12px; white-space: pre-wrap; }
+.support-message time { color: #829187; font-size: 9px; }
+.support-reply { display: grid; gap: 10px; margin-top: 16px; }
+.support-reply textarea { border: 1px solid #dce4d8; padding: 10px; color: #18352d; font: inherit; }
+.support-reply button { justify-self: end; }
+.support-error { color: #a34c39; font-size: 12px; }
+@media (max-width: 700px) { .support-layout { grid-template-columns: 1fr; } .support-list { max-height: 220px; overflow: auto; border-right: 0; border-bottom: 1px solid #e7ebe3; } .support-thread { min-height: 360px; } }
+</style>

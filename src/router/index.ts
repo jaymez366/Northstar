@@ -27,6 +27,7 @@ import Profile from '@/pages/profile.vue'
 import Resources from '@/pages/resources.vue'
 import Settings from '@/pages/settings.vue'
 import StartConversation from '@/pages/startConversation.vue'
+import SupportInquiries from '@/pages/supportInquiries.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -98,6 +99,11 @@ const router = createRouter({
     {
       path: '/start-conversation',
       component: StartConversation,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/support-inquiries',
+      component: SupportInquiries,
       meta: { requiresAuth: true },
     },
     {

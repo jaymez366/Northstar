@@ -18,9 +18,6 @@
     statusRefreshTimer = window.setInterval(() => {
       void checkStatus()
     }, 30_000)
-    if (auth.profile.approvalStatus === 'rejected') {
-      void auth.refreshRejectionReason()
-    }
   })
 
   onUnmounted(() => {
@@ -40,9 +37,6 @@
         await new Promise(resolve => window.setTimeout(resolve, 1800))
         await router.replace('/overview')
       } else if (auth.profile.registrationCompleted) {
-        if (auth.profile.approvalStatus === 'rejected') {
-          await auth.refreshRejectionReason()
-        }
         if (auth.errorMessage) {
           error.value = auth.errorMessage
         }

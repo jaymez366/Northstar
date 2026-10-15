@@ -7,22 +7,32 @@
   const workspace = useWorkspaceStore()
   const search = ref('')
   const draft = ref('')
+  const startingConversation = ref(false)
+  const sendingMessage = ref(false)
+  let startingEmployeeId = ''
   const selectedId = ref(workspace.conversations.find(item => item.employeeId === route.query.employee)?.id ?? workspace.conversations[0]?.id ?? '')
   const messageList = ref<HTMLElement | null>(null)
   const selectedConversation = computed(() => workspace.conversations.find(item => item.id === selectedId.value))
   const filteredConversations = computed(() => workspace.conversations.filter(item => item.name.toLowerCase().includes(search.value.trim().toLowerCase())))
 
-  watch(() => route.query.employee, employeeId => {
+  watch([() => route.query.employee, () => workspace.employees.length], async ([employeeId]) => {
     if (typeof employeeId !== 'string') return
     const match = workspace.conversations.find(item => item.employeeId === employeeId)
     if (match) {
       selectedId.value = match.id
       return
     }
-    void workspace.startConversation(employeeId).then(id => {
+    if (!workspace.employees.some(employee => employee.id === employeeId) || startingEmployeeId === employeeId) return
+    startingEmployeeId = employeeId
+    startingConversation.value = true
+    try {
+      const id = await workspace.startConversation(employeeId)
       if (id) selectedId.value = id
-    })
-  })
+    } finally {
+      startingEmployeeId = ''
+      startingConversation.value = false
+    }
+  }, { immediate: true })
 
   watch(selectedId, conversationId => {
     if (conversationId) void workspace.markConversationRead(conversationId)
@@ -38,9 +48,14 @@
   }
 
   async function send () {
-    if (!selectedConversation.value || !draft.value.trim()) return
-    if (await workspace.sendMessage(selectedConversation.value.id, draft.value)) {
-      draft.value = ''
+    if (!selectedConversation.value || !draft.value.trim() || sendingMessage.value) return
+    sendingMessage.value = true
+    try {
+      if (await workspace.sendMessage(selectedConversation.value.id, draft.value)) {
+        draft.value = ''
+      }
+    } finally {
+      sendingMessage.value = false
     }
   }
 </script>
@@ -88,10 +103,15 @@
 
         <form class="composer" @submit.prevent="send">
           <input v-model="draft" aria-label="Write a message" autocomplete="off" placeholder="Write a message...">
-          <button aria-label="Send message" :disabled="!draft.trim()" type="submit"><v-icon icon="mdi-send" size="18" /></button>
+          <button :aria-label="sendingMessage ? 'Sending message' : 'Send message'" :disabled="!draft.trim() || sendingMessage" type="submit">
+            <v-progress-circular v-if="sendingMessage" aria-hidden="true" indeterminate size="16" width="2" />
+            <v-icon v-else icon="mdi-send" size="18" />
+            <span v-if="sendingMessage">Sending…</span>
+          </button>
         </form>
       </section>
 
+      <section v-else-if="startingConversation" aria-live="polite" class="chat-empty empty-state"><v-progress-circular aria-label="Starting conversation" indeterminate size="22" width="2" /><p>Starting conversation…</p></section>
       <section v-else class="chat-empty empty-state"><v-icon icon="mdi-message-text-outline" size="38" /><h2>Your conversations</h2><p>Select a conversation to read and reply, or find a colleague to start a new one.</p><router-link class="secondary-action" to="/employees">Browse colleagues</router-link></section>
     </section>
   </main>
@@ -131,7 +151,7 @@
 .chat-message time { color: #a1aaa2; font-size: 8px; }
 .composer { display: flex; gap: 8px; margin: 0 17px 17px; border: 1px solid #dce4d8; padding: 6px; }
 .composer input { min-width: 0; flex: 1; border: 0; outline: none; padding: 8px; color: #18352d; font: 11px "Manrope", sans-serif; }
-.composer button { display: grid; width: 36px; height: 34px; place-items: center; border: 0; background: #d4ec66; color: #18352d; cursor: pointer; }
+.composer button { display: flex; min-width: 36px; height: 34px; align-items: center; justify-content: center; gap: 6px; border: 0; padding: 0 10px; background: #d4ec66; color: #18352d; cursor: pointer; font: 700 10px "Manrope", sans-serif; }
 .composer button:disabled { cursor: not-allowed; opacity: .5; }
 .chat-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 35px; }
 .chat-empty .secondary-action { margin-top: 6px; }

@@ -195,6 +195,22 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
 
+    let rejectionReason = ''
+    let profileLoadError = ''
+    if (ownProfile.approval_status === 'rejected') {
+      const { data: rejectionData, error: rejectionError } = await supabase
+        .from('profiles')
+        .select('rejection_reason')
+        .eq('id', id)
+        .maybeSingle()
+      if (rejectionError) {
+        profileLoadError = `Could not load your registration decision: ${rejectionError.message}`
+        console.error(profileLoadError, rejectionError)
+      } else {
+        rejectionReason = rejectionData?.rejection_reason ?? ''
+      }
+    }
+
     profile.value = {
       firstName: ownProfile.first_name ?? '',
       lastName: ownProfile.last_name ?? '',
@@ -207,7 +223,7 @@ export const useAuthStore = defineStore('auth', () => {
       role: ownProfile.role ?? 'employee',
       status: ownProfile.employment_status ?? 'active',
       approvalStatus: ownProfile.approval_status ?? 'pending',
-      rejectionReason: ownProfile.rejection_reason ?? '',
+      rejectionReason,
       registrationCompleted: ownProfile.registration_completed ?? false,
       employeeId: ownProfile.employee_id ?? '',
       employmentType: ownProfile.employment_type ?? '',
@@ -216,7 +232,7 @@ export const useAuthStore = defineStore('auth', () => {
       managerName: ownProfile.manager_name ?? '',
       bio: ownProfile.bio ?? '',
     }
-    let avatarLoadError = ''
+    let avatarLoadError = profileLoadError
     if (profile.value.avatarPath) {
       const { data: avatar, error: avatarError } = await supabase.storage
         .from('profile-avatars')
@@ -241,20 +257,6 @@ export const useAuthStore = defineStore('auth', () => {
     if (userId.value) {
       await loadProfile(userId.value)
     }
-  }
-
-  async function refreshRejectionReason () {
-    if (!supabase || !userId.value || profile.value.approvalStatus !== 'rejected') {
-      return false
-    }
-    const { data, error } = await supabase.rpc('get_my_employee_rejection_reason')
-    if (error) {
-      errorMessage.value = `Could not load your registration decision: ${error.message}`
-      console.error(errorMessage.value, error)
-      return false
-    }
-    profile.value.rejectionReason = data ?? ''
-    return true
   }
 
   async function resendSignupConfirmation (email: string) {
@@ -595,6 +597,5 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     dispose,
     refreshProfile,
-    refreshRejectionReason,
   }
 })

@@ -19,7 +19,7 @@
   const resetEmail = ref('')
   const submitButtonLabel = computed(() => {
     if (busy.value) {
-      return isSignup.value ? 'Creating Account…' : 'Signing In…'
+      return isSignup.value ? 'Creating account…' : 'Signing in…'
     }
     return isSignup.value ? 'Create Account' : 'Enter workspace'
   })

@@ -12,6 +12,7 @@
   const primaryLinks = [
     { title: 'Overview', to: '/overview', icon: 'mdi-view-dashboard-outline' },
     { title: 'Messages', to: '/messages', icon: 'mdi-message-text-outline' },
+    { title: 'Expert support', to: '/support-inquiries', icon: 'mdi-lifebuoy' },
     { title: 'Announcements', to: '/announcements', icon: 'mdi-bullhorn-outline' },
     { title: 'Employees', to: '/employees', icon: 'mdi-account-group-outline' },
     { title: 'Departments', to: '/departments', icon: 'mdi-domain' },

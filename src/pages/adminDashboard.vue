@@ -33,6 +33,7 @@
     current_email: string
     current_first_name: string
     current_last_name: string
+    current_avatar_url: string | null
     current_phone_number: string | null
     current_department: string | null
     current_job_title: string | null
@@ -53,6 +54,26 @@
     email_verified_at: string | null
     account_created_at: string
   }[]>([])
+  type SupportInquiry = {
+    id: string
+    user_id: string
+    email: string
+    full_name: string
+    topic: string
+    status: string
+    created_at: string
+    updated_at: string
+  }
+  type SupportMessage = { id: string, sender_id: string, sender_name: string, content: string, created_at: string }
+  const supportInquiries = ref<SupportInquiry[]>([])
+  const selectedSupportInquiry = ref<SupportInquiry | null>(null)
+  const supportMessages = ref<SupportMessage[]>([])
+  const supportReply = ref('')
+  const supportLoading = ref(false)
+  const supportReplyLoading = ref(false)
+  const supportError = ref('')
+  const employeePhotoUrl = ref('')
+  const employeePhotoLoading = ref(false)
   const approvalsLoading = ref(false)
   const approvalError = ref('')
   const updatingEmployeeId = ref('')
@@ -137,6 +158,69 @@
     }
   }
 
+  async function loadSupportInquiries () {
+    if (!auth.isAdmin || !supabase) return
+    supportLoading.value = true
+    supportError.value = ''
+    const { data, error } = await supabase.rpc('northstar_admin_list_support_inquiries')
+    if (error) {
+      supportError.value = `Could not load support inquiries: ${error.message}`
+      console.error(supportError.value, error)
+    } else {
+      supportInquiries.value = data ?? []
+    }
+    supportLoading.value = false
+  }
+
+  async function openEmployeeDetails (employee: EmployeeRegistrationRecord) {
+    selectedEmployee.value = employee
+    employeePhotoUrl.value = ''
+    if (!employee.current_avatar_url || !supabase) return
+    employeePhotoLoading.value = true
+    const { data, error } = await supabase.storage.from('profile-avatars').createSignedUrl(employee.current_avatar_url, 3600)
+    if (error) {
+      console.error('Could not load employee profile photo', error)
+    } else {
+      employeePhotoUrl.value = data.signedUrl
+    }
+    employeePhotoLoading.value = false
+  }
+
+  async function openSupportInquiry (inquiry: SupportInquiry) {
+    selectedSupportInquiry.value = inquiry
+    supportReply.value = ''
+    supportMessages.value = []
+    supportError.value = ''
+    const { data, error } = await supabase!.rpc('northstar_get_support_inquiry_messages', { p_inquiry_id: inquiry.id })
+    if (error) {
+      supportError.value = `Could not load inquiry messages: ${error.message}`
+      console.error(supportError.value, error)
+    } else {
+      supportMessages.value = data ?? []
+    }
+  }
+
+  async function sendSupportReply () {
+    const inquiry = selectedSupportInquiry.value
+    const content = supportReply.value.trim()
+    if (!inquiry || !content || supportReplyLoading.value || !supabase) return
+    supportReplyLoading.value = true
+    supportError.value = ''
+    const { error } = await supabase.rpc('northstar_admin_reply_support_inquiry', {
+      p_inquiry_id: inquiry.id,
+      p_message: content,
+    })
+    if (error) {
+      supportError.value = `Could not send reply: ${error.message}`
+      console.error(supportError.value, error)
+    } else {
+      supportReply.value = ''
+      await openSupportInquiry(inquiry)
+      await loadSupportInquiries()
+    }
+    supportReplyLoading.value = false
+  }
+
   function formatRecordDate (value: string | null) {
     if (!value) return '—'
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
@@ -187,6 +271,7 @@
   onMounted(() => {
     void loadEmployeeRecords()
     void loadEmailVerificationRecords()
+    void loadSupportInquiries()
   })
 </script>
 
@@ -322,20 +407,23 @@
           </div>
 
           <div class="approval-actions">
-            <button class="details-button" type="button" @click="selectedEmployee = employee">View Details</button>
+            <button class="details-button" type="button" @click="openEmployeeDetails(employee)">View Details</button>
 
             <button
               v-if="employee.approval_status === 'pending'"
               class="approve-button"
-              :disabled="updatingEmployeeId === employee.user_id"
+              :disabled="Boolean(updatingEmployeeId)"
               type="button"
               @click="setEmployeeApproval(employee, 'approved')"
-            >Approve</button>
+            >
+              <v-progress-circular v-if="updatingEmployeeId === employee.user_id && rejectEmployee?.user_id !== employee.user_id" aria-hidden="true" indeterminate size="14" width="2" />
+              {{ updatingEmployeeId === employee.user_id && rejectEmployee?.user_id !== employee.user_id ? 'Approving…' : 'Approve' }}
+            </button>
 
             <button
               v-if="employee.approval_status === 'pending'"
               class="reject-button"
-              :disabled="updatingEmployeeId === employee.user_id"
+              :disabled="Boolean(updatingEmployeeId)"
               type="button"
               @click="openRejectionDialog(employee)"
             >Reject</button>
@@ -352,6 +440,11 @@
         </v-card-title>
 
         <v-card-text>
+          <div class="employee-photo-wrap">
+            <v-progress-circular v-if="employeePhotoLoading" aria-label="Loading employee photo" indeterminate size="22" width="2" />
+            <img v-else-if="employeePhotoUrl" :src="employeePhotoUrl" alt="Employee profile photo" class="employee-detail-photo">
+            <span v-else class="employee-photo-placeholder">No profile photo</span>
+          </div>
           <div class="detail-summary">
             <strong>{{ selectedEmployee.first_name }} {{ selectedEmployee.last_name }}</strong>
             <span>{{ selectedEmployee.email }}</span>
@@ -432,7 +525,7 @@
             :disabled="!rejectionReason.trim()"
             :loading="updatingEmployeeId === rejectEmployee.user_id"
             @click="setEmployeeApproval(rejectEmployee, 'rejected')"
-          >Confirm rejection</v-btn>
+          >{{ updatingEmployeeId === rejectEmployee.user_id ? 'Rejecting…' : 'Confirm rejection' }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -531,6 +624,38 @@
         </article>
       </div>
     </section>
+
+    <section class="approval-panel surface-card">
+      <div class="panel-heading">
+        <div><p class="eyebrow">TALK TO AN EXPERT</p><h2>Support inquiries</h2></div>
+        <button class="secondary-action" :disabled="supportLoading" type="button" @click="loadSupportInquiries">{{ supportLoading ? 'Refreshing…' : 'Refresh' }}</button>
+      </div>
+      <p v-if="supportError" class="approval-error" role="alert">{{ supportError }}</p>
+      <p v-else-if="supportLoading" class="approval-empty">Loading support inquiries…</p>
+      <p v-else-if="supportInquiries.length === 0" class="approval-empty">No support inquiries have been submitted.</p>
+      <div v-else class="approval-list">
+        <article v-for="inquiry in supportInquiries" :key="inquiry.id" class="approval-item">
+          <div class="approval-details"><strong>{{ inquiry.full_name }} · {{ inquiry.topic }}</strong><span>{{ inquiry.email }} · {{ inquiry.status }}</span><small>{{ formatRecordDate(inquiry.created_at) }}</small></div>
+          <button class="details-button" type="button" @click="openSupportInquiry(inquiry)">Open inquiry</button>
+        </article>
+      </div>
+    </section>
+
+    <v-dialog max-width="700" :model-value="Boolean(selectedSupportInquiry)" @update:model-value="!$event && (selectedSupportInquiry = null)">
+      <v-card v-if="selectedSupportInquiry" class="employee-detail-dialog">
+        <v-card-title class="dialog-heading"><span>Support inquiry · {{ selectedSupportInquiry.topic }}</span><v-btn aria-label="Close support inquiry" icon="mdi-close" variant="text" @click="selectedSupportInquiry = null" /></v-card-title>
+        <v-card-text>
+          <p><strong>{{ selectedSupportInquiry.full_name }}</strong> · {{ selectedSupportInquiry.email }}</p>
+          <div class="support-message-list">
+            <article v-for="message in supportMessages" :key="message.id" class="support-message"><strong>{{ message.sender_name }}</strong><p>{{ message.content }}</p><time>{{ formatRecordDate(message.created_at) }}</time></article>
+          </div>
+          <label class="rejection-label" for="support-reply">Reply to employee</label>
+          <textarea id="support-reply" v-model="supportReply" maxlength="5000" rows="4" />
+          <p v-if="supportError" class="approval-error" role="alert">{{ supportError }}</p>
+        </v-card-text>
+        <v-card-actions><v-spacer /><v-btn color="primary" :disabled="!supportReply.trim() || supportReplyLoading" :loading="supportReplyLoading" @click="sendSupportReply">{{ supportReplyLoading ? 'Sending…' : 'Send reply' }}</v-btn></v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <div class="admin-columns">
       <section class="management-panel surface-card">
@@ -664,6 +789,14 @@
 .employee-detail-dialog { color: #18352d; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; }
 .detail-summary { display: grid; justify-items: start; gap: 5px; border-bottom: 1px solid #edf0e9; padding-bottom: 14px; }
+.employee-photo-wrap { display: grid; min-height: 58px; place-items: center start; margin-bottom: 12px; }
+.employee-detail-photo { width: 58px; height: 58px; border-radius: 50%; object-fit: cover; }
+.employee-photo-placeholder { color: #829187; font-size: 10px; }
+.support-message-list { display: grid; max-height: 360px; gap: 10px; overflow-y: auto; margin: 14px 0; }
+.support-message { border: 1px solid #e3e9dc; padding: 11px; background: #f8f9f6; }
+.support-message strong { color: #18352d; font-size: 11px; }
+.support-message p { margin: 6px 0; color: #52645a; font-size: 11px; white-space: pre-wrap; }
+.support-message time { color: #829187; font-size: 9px; }
 .detail-summary strong { font-size: 17px; }
 .detail-summary > span:not(.registration-status) { color: #718178; font-size: 12px; }
 .registration-status { border-radius: 20px; padding: 4px 9px; background: #fff2df; color: #94651e; font-size: 10px; font-weight: 700; text-transform: capitalize; }

@@ -1,10 +1,49 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { onMounted, ref } from 'vue'
+  import { useAuthStore } from '@/stores/auth'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
+  const auth = useAuthStore()
   const submitted = ref(false)
+  const saving = ref(false)
+  const error = ref('')
+  const workEmail = ref('')
+  const fullName = ref('')
+  const focus = ref('')
+  const message = ref('')
 
-  function submitForm () {
-    submitted.value = true
+  onMounted(() => {
+    workEmail.value = auth.userEmail
+    fullName.value = `${auth.profile.firstName} ${auth.profile.lastName}`.trim()
+  })
+
+  async function submitForm () {
+    if (saving.value) return
+    if (!isSupabaseConfigured || !supabase) {
+      error.value = 'Support inquiries require a configured Northstar Supabase connection.'
+      return
+    }
+    saving.value = true
+    error.value = ''
+    try {
+      const { error: submitError } = await supabase.rpc('northstar_submit_support_inquiry', {
+        p_email: workEmail.value.trim(),
+        p_name: fullName.value.trim(),
+        p_topic: focus.value,
+        p_message: message.value.trim(),
+      })
+      if (submitError) {
+        error.value = `Your inquiry could not be sent: ${submitError.message}`
+        console.error(error.value, submitError)
+        return
+      }
+      submitted.value = true
+    } catch (submitError) {
+      error.value = 'Your inquiry could not be sent. Please try again.'
+      console.error('Support inquiry submission failed', submitError)
+    } finally {
+      saving.value = false
+    }
   }
 </script>
 
@@ -38,31 +77,35 @@
 
           <form @submit.prevent="submitForm">
             <label>Work email
-              <input
+              <input v-model="workEmail"
                 placeholder="you@company.com"
                 required
                 type="email"
               ></label>
 
-            <label>Your name <input
+            <label>Your name <input v-model="fullName"
               placeholder="Alex Morgan"
               required
               type="text"
             ></label>
 
-            <label>What can we help with?<select required>
-              <option disabled selected value="">Choose a focus</option>
+            <label>What can we help with?<select v-model="focus" required>
+              <option disabled value="">Choose a focus</option>
               <option>Employee communication</option>
               <option>Disaster management</option>
               <option>Both</option>
             </select></label>
 
-            <label>Anything else we should know?
-              <textarea placeholder="A sentence or two is plenty." rows="3" />
+            <label>How can we help?
+              <textarea v-model="message" placeholder="A sentence or two is plenty." required rows="3" />
             </label>
 
-            <button class="submit-button" type="submit">
-              Send inquiry <v-icon icon="mdi-arrow-top-right" size="18" />
+            <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+
+            <button class="submit-button" :disabled="saving" type="submit">
+              <v-progress-circular v-if="saving" aria-label="Sending inquiry" indeterminate size="18" width="2" />
+              {{ saving ? 'Sending inquiry…' : 'Send inquiry' }}
+              <v-icon v-if="!saving" icon="mdi-arrow-top-right" size="18" />
             </button>
           </form>
 
@@ -86,6 +129,7 @@
             up within one business day.
           </p>
 
+          <router-link class="return-link" to="/support-inquiries"><v-icon icon="mdi-message-text-outline" size="16" /> View support replies</router-link>
           <router-link
             class="return-link"
             to="/overview"
