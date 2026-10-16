@@ -15,14 +15,10 @@
   const noticeMessage = ref('')
   const signupConfirmationEmail = ref('')
   const busy = ref(false)
-  const submittingAction = ref<'signup' | 'signin' | null>(null)
   const resetBusy = ref(false)
   const showPasswordResetForm = ref(false)
   const resetEmail = ref('')
   const submitButtonLabel = computed(() => {
-    if (busy.value) {
-      return submittingAction.value === 'signup' ? 'Signing up...' : 'Signing in...'
-    }
     return isSignup.value ? 'Create account' : 'Sign in'
   })
 
@@ -36,7 +32,6 @@
     if (busy.value) return
 
     busy.value = true
-    submittingAction.value = isSignup.value ? 'signup' : 'signin'
     errorMessage.value = ''
     noticeMessage.value = ''
 
@@ -97,7 +92,6 @@
       console.error('Employee authentication form failed', error)
     } finally {
       busy.value = false
-      submittingAction.value = null
     }
   }
 
@@ -254,18 +248,16 @@
             <v-icon icon="mdi-check-circle-outline" size="16" /> {{ noticeMessage }}
           </p>
 
-          <button class="submit-button" :disabled="busy" type="submit">
+          <button class="submit-button" :aria-busy="busy" :aria-label="submitButtonLabel" :disabled="busy" type="submit">
             <v-progress-circular
               v-if="busy"
-              :aria-label="submitButtonLabel"
               indeterminate
               size="18"
               width="2"
             />
 
-            <span>{{ submitButtonLabel }}</span>
-
-            <template v-if="!busy">
+            <template v-else>
+              <span>{{ submitButtonLabel }}</span>
               <v-icon icon="mdi-arrow-right" size="18" />
             </template>
           </button>
