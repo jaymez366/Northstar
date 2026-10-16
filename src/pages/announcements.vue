@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import { useAuthStore } from '@/stores/auth'
   import { type Announcement, useWorkspaceStore } from '@/stores/workspace'
 
@@ -7,6 +7,7 @@
   const workspace = useWorkspaceStore()
   const search = ref('')
   const priority = ref('All priorities')
+  const announcementLoadError = ref('')
   const selected = ref<Announcement | null>(null)
   const isDialogOpen = computed({
     get: () => selected.value !== null,
@@ -25,7 +26,17 @@
     ]
   })
   const priorities = ['All priorities', 'High', 'Normal', 'Low']
-  const canManageAnnouncements = computed(() => ['admin', 'manager'].includes(auth.profile.role))
+  const canCreateAnnouncement = computed(() => !auth.isAdmin
+    && auth.profile.role === 'employee'
+    && auth.canAccessEmployeeWorkspace)
+  const canPinAnnouncements = computed(() => !auth.isAdmin && auth.profile.role === 'manager')
+
+  onMounted(async () => {
+    if (auth.isAdmin) {
+      const error = await workspace.loadAnnouncements()
+      if (error) announcementLoadError.value = `Could not load announcements: ${error}`
+    }
+  })
 
   function formatDate (date: string) {
     return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(date))
@@ -36,7 +47,7 @@
   <main>
     <header class="page-heading">
       <div><p class="eyebrow">COMPANY-WIDE UPDATES</p><h1>Announcements</h1><p>Company news and important updates, all in one place.</p></div>
-      <router-link v-if="canManageAnnouncements" class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
+      <router-link v-if="canCreateAnnouncement" class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
     </header>
 
     <div class="toolbar">
@@ -49,12 +60,14 @@
       <span class="result-count">{{ visibleAnnouncements.length }} updates</span>
     </div>
 
+    <p v-if="announcementLoadError" class="form-error" role="alert">{{ announcementLoadError }}</p>
+
     <section v-if="visibleAnnouncements.length > 0" class="announcement-list">
       <article v-for="item in visibleAnnouncements" :key="item.id" class="announcement-card surface-card" :class="{ pinned: item.pinned }">
         <div class="announcement-meta">
           <span v-if="item.pinned" class="pinned-label"><v-icon icon="mdi-pin" size="14" /> PINNED</span>
           <span class="priority-label" :class="item.priority.toLowerCase()">{{ item.priority }} priority</span>
-          <button v-if="canManageAnnouncements" :aria-label="item.pinned ? 'Unpin announcement' : 'Pin announcement'" class="icon-action" @click="workspace.togglePinned(item.id)"><v-icon :icon="item.pinned ? 'mdi-pin' : 'mdi-pin-outline'" size="18" /></button>
+          <button v-if="canPinAnnouncements" :aria-label="item.pinned ? 'Unpin announcement' : 'Pin announcement'" class="icon-action" @click="workspace.togglePinned(item.id)"><v-icon :icon="item.pinned ? 'mdi-pin' : 'mdi-pin-outline'" size="18" /></button>
         </div>
 
         <button class="announcement-title" @click="selected = item">{{ item.title }}</button>

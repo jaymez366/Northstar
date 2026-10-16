@@ -106,9 +106,44 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }))
   })
 
+  async function loadAnnouncements () {
+    const auth = useAuthStore()
+    if (!auth.isAuthenticated || (!auth.isAdmin && !auth.canAccessEmployeeWorkspace)) {
+      announcementList.value = []
+      return ''
+    }
+    if (!isSupabaseConfigured || !supabase) {
+      return 'Loading announcements requires a configured Northstar Supabase connection.'
+    }
+
+    const { data, error } = await supabase
+      .from('announcements')
+      .select('id,title,content,author_id,department_id,priority,is_pinned,created_at,author:profiles!announcements_author_id_fkey(first_name,last_name),department:departments!announcements_department_id_fkey(name)')
+      .order('is_pinned', { ascending: false })
+      .order('created_at', { ascending: false })
+    if (error) {
+      return error.message
+    }
+    announcementList.value = (data ?? []).map(row => {
+      const author = relationOne(row.author)
+      const department = relationOne(row.department)
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.content,
+        author: `${author?.first_name ?? ''} ${author?.last_name ?? ''}`.trim() || 'Northstar',
+        department: department?.name ?? 'Company',
+        createdAt: row.created_at,
+        priority: ({ normal: 'Normal', important: 'High', urgent: 'High' } as const)[row.priority as 'normal' | 'important' | 'urgent'] ?? 'Normal',
+        pinned: row.is_pinned,
+      }
+    })
+    return ''
+  }
+
   async function load () {
     const auth = useAuthStore()
-    if (!isUuid(auth.userId) || !auth.canAccessEmployeeWorkspace) {
+    if (!isUuid(auth.userId) || auth.isAdmin || !auth.canAccessEmployeeWorkspace) {
       employeeList.value = []
       announcementList.value = []
       conversations.value = []
@@ -618,7 +653,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function togglePinned (id: string) {
-    if (!isUuid(id) || !isUuid(useAuthStore().userId)) return
+    const auth = useAuthStore()
+    if (auth.isAdmin || auth.profile.role !== 'manager' || !isUuid(id) || !isUuid(auth.userId)) return
     const announcement = announcementList.value.find(item => item.id === id)
     if (!announcement) {
       return
@@ -637,6 +673,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function publishAnnouncement (title: string, description: string, author: string) {
+    const auth = useAuthStore()
+    if (auth.isAdmin || auth.profile.role !== 'employee' || !auth.canAccessEmployeeWorkspace) return false
     const trimmedTitle = title.trim()
     const trimmedDescription = description.trim()
     if (!trimmedTitle || !trimmedDescription) {
@@ -688,6 +726,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   return {
     employees: employeeList,
     announcements: announcementList,
+    loadAnnouncements,
     conversations,
     notifications: notificationList,
     events: eventList,

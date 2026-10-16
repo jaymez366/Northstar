@@ -1,7 +1,7 @@
 <template>
   <v-app>
     <v-main>
-      <AdminLayout v-if="route.meta.requiresAdmin">
+      <AdminLayout v-if="route.meta.requiresAdmin || (route.meta.adminReadable && auth.isAdmin)">
         <router-view />
       </AdminLayout>
 
@@ -18,6 +18,8 @@
   import { useRoute } from 'vue-router'
   import AdminLayout from '@/components/AdminLayout.vue'
   import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
+  import { useAuthStore } from '@/stores/auth'
 
   const route = useRoute()
+  const auth = useAuthStore()
 </script>

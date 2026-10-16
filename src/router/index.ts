@@ -40,52 +40,52 @@ const router = createRouter({
     {
       path: '/overview',
       component: Overview,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/employees',
       component: EmployeeDirectory,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/announcements',
       component: Announcements,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, adminReadable: true },
     },
     {
       path: '/messages',
       component: Messages,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/notifications',
       component: Notifications,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/departments',
       component: Departments,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/events',
       component: Events,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/resources',
       component: Resources,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/profile',
       component: Profile,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/settings',
       component: Settings,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/admin',
@@ -99,22 +99,22 @@ const router = createRouter({
     {
       path: '/start-conversation',
       component: StartConversation,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/support-inquiries',
       component: SupportInquiries,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/employee-communication',
       component: EmployeeCommunication,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/disaster-management',
       component: DisasterManagement,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
       path: '/login',
@@ -137,12 +137,12 @@ const router = createRouter({
     {
       path: '/employee-registration',
       component: EmployeeRegistration,
-      meta: { requiresAuth: true, allowIncompleteRegistration: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowIncompleteRegistration: true },
     },
     {
       path: '/pending-approval',
       component: PendingApproval,
-      meta: { requiresAuth: true, allowPendingApproval: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowPendingApproval: true },
     },
   ],
 })
@@ -197,6 +197,10 @@ function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore
       path: '/login',
       query: { redirect: to.fullPath },
     }
+  }
+
+  if (to.meta.requiresEmployeeWorkspace && auth.isAdmin) {
+    return '/admin'
   }
 
   if (to.meta.allowUnverified && auth.isAuthenticated && auth.emailVerified) {

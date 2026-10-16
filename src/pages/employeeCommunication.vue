@@ -10,11 +10,18 @@
   const auth = useAuthStore()
   const workspace = useWorkspaceStore()
   const router = useRouter()
+  const canPublishAnnouncement = computed(() => !auth.isAdmin
+    && auth.profile.role === 'employee'
+    && auth.canAccessEmployeeWorkspace)
   const audienceDepartments = computed(() => workspace.departments.slice(0, 3))
   const recentUpdates = computed(() => workspace.announcements.slice(0, 2))
 
   async function sendUpdate () {
     error.value = ''
+    if (!canPublishAnnouncement.value) {
+      error.value = 'Only active Northstar employees can publish announcements.'
+      return
+    }
     if (!title.value.trim() || !message.value.trim()) {
       error.value = 'Add an announcement title and message before continuing.'
       return
@@ -41,7 +48,7 @@
     </section>
 
     <section aria-label="Employee communication workspace" class="workspace">
-      <div class="composer-panel">
+      <div v-if="canPublishAnnouncement" class="composer-panel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">NEW UPDATE</p>
@@ -81,6 +88,10 @@
             Publish update <v-icon icon="mdi-arrow-right" size="17" />
           </button>
         </div>
+      </div>
+
+      <div v-else class="composer-panel">
+        <p class="form-error" role="status">Announcement publishing is available to active employees only.</p>
       </div>
 
       <aside class="insight-panel">

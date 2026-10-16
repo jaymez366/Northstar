@@ -10,7 +10,6 @@
   const route = useRoute()
   const isUuid = (value: string | null | undefined): value is string =>
     typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-  const employeeSearch = ref('')
   type EmployeeRegistrationRecord = {
     user_id: string
     first_name: string
@@ -94,20 +93,11 @@
   const rejectionDialogError = ref('')
   const verificationRecordsLoading = ref(false)
   const verificationRecordsError = ref('')
-  const filteredEmployees = computed(() => workspace.employees.filter(employee => `${employee.firstName} ${employee.lastName} ${employee.department}`.toLowerCase().includes(employeeSearch.value.trim().toLowerCase())))
   const filteredRegistrations = computed(() => employeeRecords.value
     .filter(employee => employee.approval_status === employeeFilter.value)
     .filter(employee => `${employee.first_name} ${employee.last_name} ${employee.email} ${employee.department ?? ''} ${employee.job_title ?? ''}`
       .toLowerCase()
       .includes(registrationSearch.value.trim().toLowerCase())))
-  const displayedActivities = computed(() => workspace.activityLogs.map(item => ({
-    id: item.id,
-    icon: item.action.includes('announcement') ? 'mdi-bullhorn-outline' : (item.action.includes('event') ? 'mdi-calendar-outline' : 'mdi-file-document-outline'),
-    title: item.description,
-    actor: item.user,
-    time: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.createdAt)),
-  })))
-
   async function loadEmployeeRecords () {
     if (!auth.isAdmin) {
       approvalError.value = 'Only the confirmed Northstar administrator account can access registration approvals.'
@@ -269,9 +259,6 @@
       rejectEmployee.value = null
       rejectionReason.value = ''
       await loadEmployeeRecords()
-      if (approvalStatus === 'approved') {
-        await workspace.load()
-      }
     } catch (error) {
       approvalError.value = 'Could not update employee approval. Please try again.'
       console.error(approvalError.value, error)
@@ -281,6 +268,9 @@
   }
 
   onMounted(() => {
+    void workspace.loadAnnouncements().then(error => {
+      if (error) console.error('Could not load announcements for the admin dashboard', error)
+    })
     void loadEmployeeRecords().then(() => {
       const registrationId = typeof route.query.registration === 'string' ? route.query.registration : ''
       if (!isUuid(registrationId)) return
@@ -303,66 +293,6 @@
 
       <span class="admin-badge"><v-icon icon="mdi-shield-check-outline" size="16" /> ADMIN WORKSPACE</span>
     </header>
-
-    <section aria-label="Organization metrics" class="admin-stats">
-      <article class="surface-card"><span><v-icon icon="mdi-account-group-outline" /></span>
-
-        <small>TOTAL
-          EMPLOYEES</small>
-
-        <strong>{{ workspace.employees.length }}</strong>
-
-        <router-link to="/employees">View directory
-          <v-icon icon="mdi-arrow-right" size="13" /></router-link></article>
-
-      <article class="surface-card"><span><v-icon icon="mdi-domain" /></span><small>DEPARTMENTS</small>
-
-        <strong>{{
-          workspace.departments.length }}</strong>
-
-        <router-link to="/departments">View departments <v-icon
-          icon="mdi-arrow-right"
-          size="13"
-        /></router-link></article>
-
-      <article class="surface-card"><span><v-icon
-                                      icon="mdi-bullhorn-outline"
-                                    /></span>
-
-        <small>ANNOUNCEMENTS</small>
-
-        <strong>{{ workspace.announcements.length
-        }}</strong>
-
-        <router-link to="/announcements">Manage updates <v-icon
-          icon="mdi-arrow-right"
-          size="13"
-        /></router-link></article>
-
-      <article class="surface-card"><span><v-icon icon="mdi-calendar-outline" /></span>
-
-        <small>UPCOMING
-          EVENTS</small>
-
-        <strong>{{ workspace.events.length }}</strong>
-
-        <router-link to="/events">Manage events <v-icon
-          icon="mdi-arrow-right"
-          size="13"
-        /></router-link></article>
-
-      <article class="surface-card"><span><v-icon
-                                      icon="mdi-message-outline"
-                                    /></span>
-
-        <small>CONVERSATIONS</small>
-
-        <strong>{{ workspace.conversations.length
-        }}</strong>
-
-        <router-link to="/messages">View messages <v-icon icon="mdi-arrow-right" size="13" /></router-link>
-      </article>
-    </section>
 
     <section class="approval-panel surface-card">
       <div class="panel-heading">
@@ -674,98 +604,13 @@
       </v-card>
     </v-dialog>
 
-    <div class="admin-columns">
-      <section class="management-panel surface-card">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">PEOPLE</p>
-            <h2>Employee management</h2>
-          </div>
-
-          <router-link to="/employees">Full directory <v-icon icon="mdi-arrow-right" size="14" /></router-link>
-        </div>
-
-        <input
-          v-model="employeeSearch"
-          aria-label="Search employee records"
-          class="field-control"
-          placeholder="Search employees"
-        >
-
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>EMPLOYEE</th>
-                <th>DEPARTMENT</th>
-                <th>STATUS</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              <tr v-for="employee in filteredEmployees.slice(0, 6)" :key="employee.id">
-                <td><span class="table-employee"><i :style="{ background: employee.color }">{{ employee.initials
-                                                 }}</i>
-
-                  <span><strong>{{ employee.firstName }} {{ employee.lastName }}</strong>
-
-                    <small>{{
-                      employee.title }}</small></span></span></td>
-
-                <td>{{ employee.department }}</td>
-
-                <td><span class="table-status" :class="{ online: employee.online }">{{ employee.online ? 'Online' :
-                  'Offline' }}</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="management-panel surface-card">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">RECENT ACTIVITY</p>
-            <h2>What’s happening</h2>
-          </div>
-        </div>
-
-        <div class="activity-list">
-          <article v-for="activity in displayedActivities" :key="activity.id"><span><v-icon
-                                                                                :icon="activity.icon"
-                                                                                size="18"
-                                                                              /></span>
-
-            <div><strong>{{ activity.title }}</strong><small>{{ activity.actor }} · {{ activity.time }}</small></div>
-          </article>
-
-          <p v-if="displayedActivities.length === 0" class="no-activity">No recent activity has been recorded.</p>
-        </div>
-      </section>
-    </div>
-
     <section class="admin-links">
-      <router-link class="surface-card admin-link-card" to="/announcements"><span><v-icon
-                                                                              icon="mdi-bullhorn-outline"
-                                                                            /></span>
-
-        <strong>Announcement management</strong>
-
-        <small>Review and publish
-          company-wide updates</small>
-
-        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" /></router-link>
-
-      <router-link class="surface-card admin-link-card" to="/departments"><span><v-icon
-                                                                            icon="mdi-domain"
-                                                                          /></span>
-
-        <strong>Department management</strong>
-
-        <small>Review teams and their
-          members</small>
-
-        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" /></router-link>
+      <router-link class="surface-card admin-link-card" to="/announcements">
+        <span><v-icon icon="mdi-bullhorn-outline" /></span>
+        <strong>Employee announcements</strong>
+        <small>Read updates published by employees</small>
+        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" />
+      </router-link>
     </section>
 
     <p v-if="!isSupabaseConfigured" class="admin-note">Configure the Northstar Supabase project to load organization data.</p>

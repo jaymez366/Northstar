@@ -2,10 +2,8 @@
   import { onMounted, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
-  import { useWorkspaceStore } from '@/stores/workspace'
 
   const auth = useAuthStore()
-  const workspace = useWorkspaceStore()
   const router = useRouter()
 
   onMounted(() => {
@@ -24,7 +22,6 @@
       await router.replace('/admin-login')
       return
     }
-    void workspace.load()
   }
 
   async function logout () {
@@ -44,41 +41,6 @@
       </router-link>
 
       <div class="admin-topbar-actions">
-        <v-menu location="bottom end">
-          <template #activator="{ props }">
-            <button
-              v-bind="props"
-              aria-label="Notifications"
-              class="admin-icon-button"
-              type="button"
-            >
-              <v-icon icon="mdi-bell-outline" size="20" />
-
-              <span v-if="workspace.unreadNotifications" class="notification-count">
-                {{ workspace.unreadNotifications }}
-              </span>
-            </button>
-          </template>
-
-          <v-list class="admin-menu-list" density="compact">
-            <v-list-subheader>Notifications</v-list-subheader>
-
-            <v-list-item
-              v-for="item in workspace.notifications.slice(0, 8)"
-              :key="item.id"
-              :subtitle="item.description"
-              :title="item.title"
-              :to="item.to"
-            />
-
-            <v-list-item
-              v-if="workspace.notifications.length === 0"
-              subtitle="You're all caught up."
-              title="No notifications"
-            />
-          </v-list>
-        </v-menu>
-
         <v-menu location="bottom end">
           <template #activator="{ props }">
             <button v-bind="props" class="admin-profile-button" type="button">
@@ -103,17 +65,14 @@
 
     <main class="admin-content">
       <v-alert
-        v-if="workspace.backendError || auth.errorMessage"
+        v-if="auth.errorMessage"
         class="admin-data-alert"
         closable
         type="warning"
         variant="tonal"
-        @click:close="workspace.backendError = ''; auth.errorMessage = ''"
+        @click:close="auth.errorMessage = ''"
       >
-        {{ workspace.backendError || auth.errorMessage }}
-        <template #append>
-          <v-btn size="small" variant="text" @click="workspace.load">Retry</v-btn>
-        </template>
+        {{ auth.errorMessage }}
       </v-alert>
 
       <slot />
