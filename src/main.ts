@@ -24,11 +24,4 @@ const app = createApp(App)
 registerPlugins(app)
 
 const auth = useAuthStore()
-void auth.initialize().then(() => {
-  if ('serviceWorker' in navigator) {
-    void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(error => {
-      console.error('Northstar service worker registration failed', error)
-    })
-  }
-  app.mount('#app')
-})
+void auth.initialize().then(() => app.mount('#app'))
