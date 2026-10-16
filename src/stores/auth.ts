@@ -5,6 +5,8 @@ import { isSupabaseConfigured, supabase, supabaseConfigurationError } from '../.
 
 const signupConfirmationRedirect = () => `${window.location.origin}/auth/callback`
 const administratorEmail = 'northstaradmin34@gmail.com'
+const isUuid = (value: string | null | undefined): value is string =>
+  typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
 for (const legacyKey of [
   'northstar-authenticated',
@@ -97,6 +99,8 @@ export const useAuthStore = defineStore('auth', () => {
       && profile.value.employmentType.trim()
       && profile.value.officeLocation.trim(),
     ))
+  const canAccessEmployeeWorkspace = computed(() => isAdmin.value
+    || (profileLoaded.value && profile.value.approvalStatus === 'approved' && profile.value.status === 'active'))
   const ready = ref(false)
   const errorMessage = ref('')
   let initialization: Promise<void> | null = null
@@ -155,7 +159,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loadProfile (id: string) {
-    if (!supabase || !isSupabaseConfigured || id !== userId.value) {
+    if (!supabase || !isSupabaseConfigured || !isUuid(id) || id !== userId.value) {
       return
     }
     if (profileLoad?.userId === id) {
@@ -174,7 +178,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loadProfileRecord (id: string) {
-    if (!supabase || !isSupabaseConfigured || id !== userId.value) {
+    if (!supabase || !isSupabaseConfigured || !isUuid(id) || id !== userId.value) {
       return
     }
     profileLoaded.value = false
@@ -195,9 +199,9 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
 
-    let rejectionReason = ''
+    let rejectionReason = ownProfile.rejection_reason ?? ''
     let profileLoadError = ''
-    if (ownProfile.approval_status === 'rejected') {
+    if (ownProfile.approval_status === 'rejected' && !rejectionReason) {
       const { data: rejectionData, error: rejectionError } = await supabase
         .from('profiles')
         .select('rejection_reason')
@@ -221,7 +225,7 @@ export const useAuthStore = defineStore('auth', () => {
       photoUrl: '',
       avatarPath: ownProfile.avatar_url ?? '',
       role: ownProfile.role ?? 'employee',
-      status: ownProfile.employment_status ?? 'active',
+      status: ownProfile.employment_status ?? 'inactive',
       approvalStatus: ownProfile.approval_status ?? 'pending',
       rejectionReason,
       registrationCompleted: ownProfile.registration_completed ?? false,
@@ -491,7 +495,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function uploadAvatar (file: File) {
     errorMessage.value = ''
-    if (!isSupabaseConfigured || !supabase || !userId.value) {
+    if (!isSupabaseConfigured || !supabase || !isUuid(userId.value)) {
       errorMessage.value = 'Profile photo upload requires an active Supabase session.'
       return false
     }
@@ -514,6 +518,39 @@ export const useAuthStore = defineStore('auth', () => {
     }
     await loadProfile(userId.value)
     return !errorMessage.value
+  }
+
+  async function uploadRegistrationPhoto (file: File, useAsProfilePhoto: boolean) {
+    errorMessage.value = ''
+    if (!isSupabaseConfigured || !supabase || !isUuid(userId.value)) {
+      errorMessage.value = 'Registration photo upload requires an active Supabase session.'
+      return false
+    }
+    const extension = file.name.split('.').at(-1)?.replace(/[^a-z0-9]/gi, '') || 'image'
+    const path = `${userId.value}/${crypto.randomUUID()}.${extension}`
+    const { error: uploadError } = await supabase.storage.from('profile-avatars').upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    })
+    if (uploadError) {
+      errorMessage.value = `Could not upload registration photo: ${uploadError.message}`
+      console.error(errorMessage.value, uploadError)
+      return false
+    }
+    const { error: saveError } = await supabase.rpc('northstar_save_registration_photo', {
+      p_storage_path: path,
+      p_use_as_profile_photo: useAsProfilePhoto,
+    })
+    if (saveError) {
+      errorMessage.value = `Photo uploaded, but its registration choice could not be saved: ${saveError.message}`
+      console.error(errorMessage.value, saveError)
+      return false
+    }
+    if (useAsProfilePhoto) {
+      await loadProfile(userId.value)
+      if (!profileLoaded.value) return false
+    }
+    return true
   }
 
   async function logout () {
@@ -594,6 +631,8 @@ export const useAuthStore = defineStore('auth', () => {
     updatePassword,
     saveProfile,
     uploadAvatar,
+    uploadRegistrationPhoto,
+    canAccessEmployeeWorkspace,
     logout,
     dispose,
     refreshProfile,

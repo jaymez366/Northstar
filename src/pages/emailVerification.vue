@@ -48,7 +48,7 @@
     let destination = '/pending-approval'
     if (auth.isAdmin) {
       destination = '/admin'
-    } else if (auth.employeeRegistrationComplete && auth.profile.approvalStatus === 'approved') {
+    } else if (auth.employeeRegistrationComplete && auth.canAccessEmployeeWorkspace) {
       destination = '/overview'
     } else if (!auth.employeeRegistrationComplete) {
       destination = '/employee-registration'
@@ -70,7 +70,7 @@
         error.value = auth.errorMessage
         return
       }
-      message.value = 'If an account exists for this address and still needs confirmation, a new link will be sent. Northstar processes up to five confirmation resend requests per account in any 30-minute window. Once you reach that limit, further requests are paused until the window passes.'
+      message.value = `A verification link was requested for ${email.value.trim()}. Click the link to verify your email. Northstar processes up to five confirmation resend requests per account in any 30-minute window. Once you reach that limit, further requests are paused until the window passes.`
     } finally {
       busy.value = false
     }
@@ -115,7 +115,7 @@
 
       <template v-else>
         <h1 id="verification-title">Check your<br><em>Northstar email.</em></h1>
-        <p class="verification-copy">Use the confirmation link sent to your work email to activate your account. Once confirmed, return to Northstar to sign in.</p>
+        <p class="verification-copy">Use the confirmation link sent to <strong>{{ email || 'your work email' }}</strong> to activate your account. Click the link before returning to Northstar to sign in.</p>
       </template>
 
       <form v-if="!isCallback || callbackState === 'error'" @submit.prevent="resendConfirmation">
@@ -133,7 +133,7 @@
         <p v-if="message && callbackState !== 'success'" class="form-message" role="status">{{ message }}</p>
 
         <button class="primary-action verify-button" :disabled="busy" type="submit">
-          {{ busy ? 'Sending…' : 'Resend confirmation email' }}
+          {{ busy ? 'Sending verification email…' : 'Resend confirmation email' }}
           <v-icon v-if="busy" class="rotate-icon" icon="mdi-loading" size="17" />
           <v-icon v-else icon="mdi-email-fast-outline" size="17" />
         </button>

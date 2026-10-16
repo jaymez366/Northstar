@@ -13,6 +13,8 @@
   const sending = ref(false)
   const error = ref('')
   const selectedInquiry = computed(() => inquiries.value.find(inquiry => inquiry.id === selectedId.value))
+  const isUuid = (value: string | null | undefined): value is string =>
+    typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
   async function loadInquiries () {
     if (!isSupabaseConfigured || !supabase) return
@@ -31,7 +33,7 @@
   }
 
   async function loadMessages (inquiryId: string) {
-    if (!supabase) return
+    if (!supabase || !isUuid(inquiryId)) return
     selectedId.value = inquiryId
     const { data, error: loadError } = await supabase.rpc('northstar_get_support_inquiry_messages', { p_inquiry_id: inquiryId })
     if (loadError) {
@@ -44,7 +46,7 @@
 
   async function sendReply () {
     const content = reply.value.trim()
-    if (!selectedId.value || !content || sending.value || !supabase) return
+    if (!isUuid(selectedId.value) || !content || sending.value || !supabase) return
     sending.value = true
     error.value = ''
     const { error: sendError } = await supabase.rpc('northstar_reply_support_inquiry', {

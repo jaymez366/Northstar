@@ -8,6 +8,7 @@
   const saving = ref(false)
   const error = ref('')
   const photo = ref<File | null>(null)
+  const photoChoice = ref<boolean | null>(null)
   const departments = [
     'Administration',
     'Human Resources',
@@ -28,7 +29,7 @@
     department: auth.profile.department,
     jobTitle: auth.profile.jobTitle,
     employeeId: auth.profile.employeeId,
-    employmentType: '',
+    employmentType: auth.profile.employmentType,
     officeLocation: auth.profile.officeLocation,
     dateOfJoining: auth.profile.dateOfJoining,
     managerName: auth.profile.managerName,
@@ -51,6 +52,9 @@
 
   async function submitRegistration () {
     error.value = validateForm()
+    if (photo.value && photoChoice.value === null) {
+      error.value = 'Choose whether this photo should be used as your Northstar profile picture.'
+    }
     if (error.value || saving.value) return
 
     saving.value = true
@@ -61,7 +65,7 @@
         return
       }
       if (photo.value) {
-        const uploaded = await auth.uploadAvatar(photo.value)
+        const uploaded = await auth.uploadRegistrationPhoto(photo.value, photoChoice.value === true)
         if (!uploaded) {
           error.value = auth.errorMessage || 'Your profile photo could not be uploaded.'
           return
@@ -84,6 +88,7 @@
       return
     }
     photo.value = file
+    photoChoice.value = null
     error.value = ''
   }
 </script>
@@ -181,6 +186,12 @@
           </label>
         </div>
 
+        <fieldset v-if="photo" class="photo-choice">
+          <legend>Would you like to use this photo as your Northstar profile picture?</legend>
+          <label><input v-model="photoChoice" :value="true" type="radio"> Yes, use this photo as my profile picture.</label>
+          <label><input v-model="photoChoice" :value="false" type="radio"> No, I do not want to use this photo as my profile picture.</label>
+        </fieldset>
+
         <label class="bio-field">Short introduction
           <textarea v-model="form.bio" maxlength="500" placeholder="Share a little about your role or experience." rows="4" />
         </label>
@@ -201,6 +212,9 @@
 
 <style scoped>
 .registration-page { max-width: 940px; margin: 0 auto; }
+.photo-choice { display: grid; gap: 10px; border: 1px solid #dce4d9; padding: 14px; color: #53665a; font-size: 10px; }
+.photo-choice legend { padding: 0 5px; font-weight: 700; }
+.photo-choice label { display: flex; align-items: center; gap: 8px; }
 .registration-form { display: grid; gap: 25px; padding: clamp(18px, 4vw, 30px); }
 .registration-section + .registration-section { border-top: 1px solid #e8ede5; padding-top: 23px; }
 .section-title { margin-bottom: 15px; }

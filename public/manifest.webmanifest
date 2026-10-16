@@ -1,0 +1,18 @@
+{
+  "name": "Northstar Employee Communication",
+  "short_name": "Northstar",
+  "description": "Employee communication and response workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f5ef",
+  "theme_color": "#102d26",
+  "icons": [
+    {
+      "src": "/northstar-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

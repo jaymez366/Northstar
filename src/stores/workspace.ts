@@ -3,6 +3,9 @@ import { computed, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
+const isUuid = (value: string | null | undefined): value is string =>
+  typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+
 export type Employee = {
   id: string
   firstName: string
@@ -104,15 +107,26 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   })
 
   async function load () {
+    const auth = useAuthStore()
+    if (!isUuid(auth.userId) || !auth.canAccessEmployeeWorkspace) {
+      employeeList.value = []
+      announcementList.value = []
+      conversations.value = []
+      notificationList.value = []
+      eventList.value = []
+      resourceList.value = []
+      departmentList.value = []
+      activityLogs.value = []
+      backendError.value = ''
+      loading.value = false
+      return
+    }
     if (!isSupabaseConfigured || !supabase) {
       backendError.value = 'Northstar Supabase is not configured. Add the project URL and public key to the local environment before loading workspace data.'
       return
     }
     const client = supabase
-    const auth = useAuthStore()
-    if (!auth.userId || loading.value) {
-      return
-    }
+    if (loading.value) return
 
     loading.value = true
     backendError.value = ''
@@ -143,6 +157,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const { data: employeeRows, error: employeeError } = await supabase
       .from('profiles')
       .select('id,first_name,last_name,email,avatar_url,job_title,department_id,employment_status,departments(name)')
+      .eq('approval_status', 'approved')
       .eq('employment_status', 'active')
       .order('first_name')
     if (employeeError) {
@@ -205,7 +220,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     const { data: notificationRows, error: notificationError } = await supabase
       .from('notifications')
-      .select('id,title,message,notification_type,is_read,created_at')
+      .select('id,title,message,notification_type,is_read,created_at,link_to')
       .eq('user_id', auth.userId)
       .order('created_at', { ascending: false })
     if (notificationError) {
@@ -218,7 +233,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         category: notificationCategory(row.notification_type),
         createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)),
         unread: !row.is_read,
-        to: notificationRoute(row.notification_type),
+        to: notificationRoute(row.notification_type, row.link_to),
       }))
     }
 
@@ -271,7 +286,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (membershipError) {
       recordError('conversation memberships', membershipError)
     } else {
-      const conversationIds = [...new Set((memberships ?? []).map(row => row.conversation_id))]
+      const conversationIds = [...new Set((memberships ?? []).map(row => row.conversation_id).filter(isUuid))]
       if (conversationIds.length === 0) {
         conversations.value = []
       } else {
@@ -389,6 +404,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           notification_type: string
           is_read: boolean
           created_at: string
+          link_to: string | null
         }
         if (notificationList.value.some(item => item.id === notification.id)) {
           return
@@ -400,7 +416,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           category: notificationCategory(notification.notification_type),
           createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(notification.created_at)),
           unread: !notification.is_read,
-          to: notificationRoute(notification.notification_type),
+          to: notificationRoute(notification.notification_type, notification.link_to),
         })
       })
       .subscribe(status => {
@@ -423,6 +439,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function startConversation (employeeId: string) {
+    if (!isUuid(employeeId) || !isUuid(useAuthStore().userId) || employeeId === useAuthStore().userId) {
+      backendError.value = 'Choose a valid employee before starting a conversation.'
+      return ''
+    }
     const existing = conversations.value.find(item => item.employeeId === employeeId)
     if (existing || !isSupabaseConfigured || !supabase) {
       return existing?.id ?? ''
@@ -457,6 +477,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function sendMessage (conversationId: string, text: string) {
+    if (!isUuid(conversationId) || !isUuid(useAuthStore().userId)) return false
     const conversation = conversations.value.find(item => item.id === conversationId)
     const trimmed = text.trim()
     if (!conversation || !trimmed) {
@@ -492,6 +513,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function markConversationRead (conversationId: string) {
+    if (!isUuid(conversationId) || !isUuid(useAuthStore().userId)) return
     const conversation = conversations.value.find(item => item.id === conversationId)
     if (!conversation) {
       return
@@ -514,6 +536,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function markNotificationRead (id: string) {
+    if (!isUuid(id) || !isUuid(useAuthStore().userId)) return
     const notification = notificationList.value.find(item => item.id === id)
     if (!notification) {
       return
@@ -535,6 +558,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function markAllNotificationsRead () {
+    if (!isUuid(useAuthStore().userId)) return
     if (!isSupabaseConfigured || !supabase) {
       backendError.value = 'Updating notifications requires a configured Northstar Supabase connection.'
       return
@@ -554,6 +578,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function deleteNotification (id: string) {
+    if (!isUuid(id) || !isUuid(useAuthStore().userId)) return
     if (!isSupabaseConfigured || !supabase) {
       backendError.value = 'Managing notifications requires a configured Northstar Supabase connection.'
       return
@@ -568,6 +593,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function toggleRsvp (id: string) {
+    if (!isUuid(id) || !isUuid(useAuthStore().userId)) return
     const event = eventList.value.find(item => item.id === id)
     if (!event) {
       return
@@ -592,6 +618,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function togglePinned (id: string) {
+    if (!isUuid(id) || !isUuid(useAuthStore().userId)) return
     const announcement = announcementList.value.find(item => item.id === id)
     if (!announcement) {
       return
@@ -717,7 +744,10 @@ function notificationCategory (type: string): WorkspaceNotification['category'] 
   return 'Announcements'
 }
 
-function notificationRoute (type: string) {
+function notificationRoute (type: string, linkTo?: string | null) {
+  if (linkTo?.startsWith('/') && !linkTo.startsWith('//')) {
+    return linkTo
+  }
   return ({
     message: '/messages',
     event: '/events',

@@ -1,11 +1,15 @@
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue'
+  import { useRoute } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
   import { useWorkspaceStore } from '@/stores/workspace'
   import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
   const workspace = useWorkspaceStore()
   const auth = useAuthStore()
+  const route = useRoute()
+  const isUuid = (value: string | null | undefined): value is string =>
+    typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
   const employeeSearch = ref('')
   type EmployeeRegistrationRecord = {
     user_id: string
@@ -175,15 +179,22 @@
   async function openEmployeeDetails (employee: EmployeeRegistrationRecord) {
     selectedEmployee.value = employee
     employeePhotoUrl.value = ''
-    if (!employee.current_avatar_url || !supabase) return
+    if (!supabase || !isUuid(employee.user_id)) return
     employeePhotoLoading.value = true
-    const { data, error } = await supabase.storage.from('profile-avatars').createSignedUrl(employee.current_avatar_url, 3600)
-    if (error) {
-      console.error('Could not load employee profile photo', error)
-    } else {
-      employeePhotoUrl.value = data.signedUrl
+    try {
+      const { data: submittedPath, error: photoError } = await supabase.rpc('northstar_admin_get_registration_photo', {
+        p_user_id: employee.user_id,
+      })
+      if (photoError) console.error('Could not load submitted employee registration photo', photoError)
+      const path = typeof submittedPath === 'string' ? submittedPath : employee.current_avatar_url
+      if (path) {
+        const { data, error } = await supabase.storage.from('profile-avatars').createSignedUrl(path, 3600)
+        if (error) console.error('Could not create a signed URL for the employee photo', error)
+        else employeePhotoUrl.value = data.signedUrl
+      }
+    } finally {
+      employeePhotoLoading.value = false
     }
-    employeePhotoLoading.value = false
   }
 
   async function openSupportInquiry (inquiry: SupportInquiry) {
@@ -191,7 +202,8 @@
     supportReply.value = ''
     supportMessages.value = []
     supportError.value = ''
-    const { data, error } = await supabase!.rpc('northstar_get_support_inquiry_messages', { p_inquiry_id: inquiry.id })
+    if (!isUuid(inquiry.id) || !supabase) return
+    const { data, error } = await supabase.rpc('northstar_get_support_inquiry_messages', { p_inquiry_id: inquiry.id })
     if (error) {
       supportError.value = `Could not load inquiry messages: ${error.message}`
       console.error(supportError.value, error)
@@ -203,7 +215,7 @@
   async function sendSupportReply () {
     const inquiry = selectedSupportInquiry.value
     const content = supportReply.value.trim()
-    if (!inquiry || !content || supportReplyLoading.value || !supabase) return
+    if (!inquiry || !isUuid(inquiry.id) || !content || supportReplyLoading.value || !supabase) return
     supportReplyLoading.value = true
     supportError.value = ''
     const { error } = await supabase.rpc('northstar_admin_reply_support_inquiry', {
@@ -233,7 +245,7 @@
   }
 
   async function setEmployeeApproval (employee: EmployeeRegistrationRecord, approvalStatus: 'approved' | 'rejected') {
-    if (!auth.isAdmin || !supabase || updatingEmployeeId.value) {
+    if (!auth.isAdmin || !supabase || !isUuid(employee.user_id) || updatingEmployeeId.value) {
       approvalError.value = 'Only the confirmed Northstar administrator account can update registration approvals.'
       return
     }
@@ -269,7 +281,12 @@
   }
 
   onMounted(() => {
-    void loadEmployeeRecords()
+    void loadEmployeeRecords().then(() => {
+      const registrationId = typeof route.query.registration === 'string' ? route.query.registration : ''
+      if (!isUuid(registrationId)) return
+      const registration = employeeRecords.value.find(employee => employee.user_id === registrationId)
+      if (registration) void openEmployeeDetails(registration)
+    })
     void loadEmailVerificationRecords()
     void loadSupportInquiries()
   })
@@ -442,8 +459,8 @@
         <v-card-text>
           <div class="employee-photo-wrap">
             <v-progress-circular v-if="employeePhotoLoading" aria-label="Loading employee photo" indeterminate size="22" width="2" />
-            <img v-else-if="employeePhotoUrl" :src="employeePhotoUrl" alt="Employee profile photo" class="employee-detail-photo">
-            <span v-else class="employee-photo-placeholder">No profile photo</span>
+            <img v-else-if="employeePhotoUrl" :src="employeePhotoUrl" alt="Employee profile photo" class="employee-detail-photo" @error="employeePhotoUrl = ''">
+            <span v-else class="employee-photo-placeholder"><v-icon icon="mdi-account-circle-outline" size="58" />No profile photo</span>
           </div>
           <div class="detail-summary">
             <strong>{{ selectedEmployee.first_name }} {{ selectedEmployee.last_name }}</strong>
@@ -791,7 +808,7 @@
 .detail-summary { display: grid; justify-items: start; gap: 5px; border-bottom: 1px solid #edf0e9; padding-bottom: 14px; }
 .employee-photo-wrap { display: grid; min-height: 58px; place-items: center start; margin-bottom: 12px; }
 .employee-detail-photo { width: 58px; height: 58px; border-radius: 50%; object-fit: cover; }
-.employee-photo-placeholder { color: #829187; font-size: 10px; }
+.employee-photo-placeholder { display: grid; justify-items: center; color: #829187; font-size: 10px; }
 .support-message-list { display: grid; max-height: 360px; gap: 10px; overflow-y: auto; margin: 14px 0; }
 .support-message { border: 1px solid #e3e9dc; padding: 11px; background: #f8f9f6; }
 .support-message strong { color: #18352d; font-size: 11px; }

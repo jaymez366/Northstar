@@ -104,7 +104,7 @@
 
             <button class="submit-button" :disabled="saving" type="submit">
               <v-progress-circular v-if="saving" aria-label="Sending inquiry" indeterminate size="18" width="2" />
-              {{ saving ? 'Sending inquiry…' : 'Send inquiry' }}
+              {{ saving ? 'Sending…' : 'Send inquiry' }}
               <v-icon v-if="!saving" icon="mdi-arrow-top-right" size="18" />
             </button>
           </form>

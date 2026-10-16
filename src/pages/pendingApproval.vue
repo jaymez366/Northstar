@@ -32,7 +32,7 @@
     error.value = ''
     try {
       await auth.refreshProfile()
-      if (auth.profile.approvalStatus === 'approved' || auth.isAdmin) {
+      if (auth.canAccessEmployeeWorkspace) {
         approvedNotice.value = true
         await new Promise(resolve => window.setTimeout(resolve, 1800))
         await router.replace('/overview')
@@ -77,6 +77,10 @@
           Your employee registration was not approved. Please review the administrator's reason below and update your registration if needed.
         </template>
 
+        <template v-else-if="auth.profile.approvalStatus === 'approved' && auth.profile.status !== 'active'">
+          Your registration is approved, but your employee account is not active yet. Contact the Northstar administrator for assistance.
+        </template>
+
         <template v-else>
           Your email is verified and your employee details have been submitted.
           Workspace access will be enabled after an administrator reviews your registration.
@@ -88,7 +92,7 @@
       </p>
 
       <p class="approval-state" :class="{ rejected: auth.profile.approvalStatus === 'rejected' }">
-        <i /> {{ approvedNotice ? 'Registration approved' : (auth.profile.approvalStatus === 'rejected' ? 'Registration not approved' : 'Awaiting administrator approval') }}
+        <i /> {{ approvedNotice ? 'Registration approved' : (auth.profile.approvalStatus === 'rejected' ? 'Registration not approved' : (auth.profile.approvalStatus === 'approved' ? 'Account inactive' : 'Awaiting administrator approval')) }}
       </p>
 
       <p v-if="error" class="approval-error" role="alert">{{ error }}</p>

@@ -28,7 +28,9 @@
 
   onMounted(() => {
     void workspace.load()
-    workspace.subscribeToMessages()
+    if (auth.canAccessEmployeeWorkspace) {
+      workspace.subscribeToMessages()
+    }
   })
 
   onUnmounted(() => workspace.unsubscribeFromMessages())

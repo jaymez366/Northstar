@@ -6,11 +6,13 @@ import { useWorkspaceStore } from '@/stores/workspace'
 const workspace = useWorkspaceStore()
 const route = useRoute()
 const search = ref('')
+const selectedEmployeeId = typeof route.query.employee === 'string' ? route.query.employee : ''
 const department = ref(typeof route.query.department === 'string' ? route.query.department : 'All departments')
 const departments = computed(() => ['All departments', ...new Set(workspace.employees.map(employee => employee.department))])
 const filteredEmployees = computed(() => workspace.employees.filter(employee => {
   const text = `${employee.firstName} ${employee.lastName} ${employee.title} ${employee.department} ${employee.email}`.toLowerCase()
-  return (department.value === 'All departments' || employee.department === department.value)
+  return (!selectedEmployeeId || employee.id === selectedEmployeeId)
+    && (department.value === 'All departments' || employee.department === department.value)
     && text.includes(search.value.trim().toLowerCase())
 }))
 </script>

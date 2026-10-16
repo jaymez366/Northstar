@@ -13,6 +13,7 @@
   const confirmPassword = ref('')
   const errorMessage = ref('')
   const noticeMessage = ref('')
+  const signupConfirmationEmail = ref('')
   const busy = ref(false)
   const resetBusy = ref(false)
   const showPasswordResetForm = ref(false)
@@ -21,7 +22,7 @@
     if (busy.value) {
       return isSignup.value ? 'Creating account…' : 'Signing in…'
     }
-    return isSignup.value ? 'Create Account' : 'Enter workspace'
+    return isSignup.value ? 'Create account' : 'Sign in'
   })
 
   onMounted(() => {
@@ -60,7 +61,8 @@
           return
         }
         if (result.requiresEmailConfirmation) {
-          noticeMessage.value = 'If this address is eligible, a confirmation link will be sent. Check your inbox and spam folder.'
+          signupConfirmationEmail.value = email.value.trim()
+          noticeMessage.value = `A verification email was requested for ${signupConfirmationEmail.value}. Click the link in that email to verify your account before signing in.`
           isSignup.value = false
           password.value = ''
           confirmPassword.value = ''
@@ -78,7 +80,7 @@
       if (auth.isAdmin) {
         redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/admin'
       } else if (auth.employeeRegistrationComplete) {
-        if (auth.profile.approvalStatus !== 'approved') {
+        if (!auth.canAccessEmployeeWorkspace) {
           redirect = '/pending-approval'
         } else if (typeof route.query.redirect === 'string') {
           redirect = route.query.redirect
@@ -128,7 +130,7 @@
     if (auth.isAdmin) {
       destination = '/admin'
     } else if (auth.employeeRegistrationComplete) {
-      destination = auth.profile.approvalStatus === 'approved' ? '/overview' : '/pending-approval'
+      destination = auth.canAccessEmployeeWorkspace ? '/overview' : '/pending-approval'
     }
     await router.replace(destination)
   }
@@ -144,6 +146,7 @@
     isSignup.value = !isSignup.value
     errorMessage.value = ''
     noticeMessage.value = ''
+    signupConfirmationEmail.value = ''
   }
 </script>
 
@@ -241,7 +244,7 @@
           <router-link
             v-if="!isSignup"
             class="verification-link"
-            :to="{ path: '/verify-email', query: { email: email.trim() } }"
+            :to="{ path: '/verify-email', query: { email: signupConfirmationEmail || email.trim() } }"
           >Resend confirmation email</router-link>
 
           <p v-if="noticeMessage" class="success-message" role="status">
@@ -251,7 +254,7 @@
           <button class="submit-button" :disabled="busy" type="submit">
             <v-progress-circular
               v-if="busy"
-              aria-label="Please wait"
+              :aria-label="submitButtonLabel"
               indeterminate
               size="18"
               width="2"

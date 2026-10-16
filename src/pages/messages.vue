@@ -34,6 +34,13 @@
     }
   }, { immediate: true })
 
+  watch([() => route.query.conversation, () => workspace.conversations], ([conversationId]) => {
+    if (typeof conversationId !== 'string') return
+    if (workspace.conversations.some(conversation => conversation.id === conversationId)) {
+      selectedId.value = conversationId
+    }
+  }, { immediate: true })
+
   watch(selectedId, conversationId => {
     if (conversationId) void workspace.markConversationRead(conversationId)
   }, { immediate: true })

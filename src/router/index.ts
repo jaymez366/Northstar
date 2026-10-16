@@ -167,7 +167,8 @@ function needsRegistration (to: RouteLocationNormalized, auth: AuthStore) {
 function awaitsApproval (to: RouteLocationNormalized, auth: AuthStore) {
   return requiresEmployeeProfile(to, auth)
     && auth.employeeRegistrationComplete
-    && auth.profile.approvalStatus === 'pending'
+    && auth.profile.approvalStatus !== 'rejected'
+    && !auth.canAccessEmployeeWorkspace
     && !to.meta.allowPendingApproval
 }
 
@@ -200,7 +201,7 @@ function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore
 
   if (to.meta.allowUnverified && auth.isAuthenticated && auth.emailVerified) {
     return auth.employeeRegistrationComplete
-      ? (auth.profile.approvalStatus === 'approved' || auth.isAdmin ? '/overview' : '/pending-approval')
+      ? (auth.canAccessEmployeeWorkspace ? '/overview' : '/pending-approval')
       : '/employee-registration'
   }
 
@@ -237,7 +238,7 @@ function getRegistrationRedirect (to: RouteLocationNormalized, auth: AuthStore):
   }
 
   if (to.path === '/pending-approval' && auth.profile.approvalStatus === 'approved') {
-    return '/overview'
+    return auth.canAccessEmployeeWorkspace ? '/overview' : undefined
   }
 }
 
@@ -265,7 +266,7 @@ function getLoginRedirect (to: RouteLocationNormalized, auth: AuthStore): RouteL
     if (!auth.employeeRegistrationComplete) {
       return '/employee-registration'
     }
-    if (auth.profile.approvalStatus !== 'approved' && !auth.isAdmin) {
+    if (!auth.canAccessEmployeeWorkspace) {
       return '/pending-approval'
     }
     return { path: typeof to.query.redirect === 'string' ? to.query.redirect : '/overview' }
