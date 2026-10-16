@@ -100,7 +100,11 @@ export const useAuthStore = defineStore('auth', () => {
       && profile.value.officeLocation.trim(),
     ))
   const canAccessEmployeeWorkspace = computed(() => isAdmin.value
-    || (profileLoaded.value && profile.value.approvalStatus === 'approved' && profile.value.status === 'active'))
+    || (emailVerified.value
+      && profileLoaded.value
+      && employeeRegistrationComplete.value
+      && profile.value.approvalStatus === 'approved'
+      && profile.value.status === 'active'))
   const ready = ref(false)
   const errorMessage = ref('')
   let initialization: Promise<void> | null = null
@@ -182,7 +186,14 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
     profileLoaded.value = false
-    const { data, error } = await supabase.rpc('get_my_profile')
+    // Read the signed-in user's canonical profile row under the existing RLS
+    // policies. The admin registration RPC reads profiles.registration_completed
+    // directly, so login routing must use that same source of truth.
+    const { data: ownProfile, error } = await supabase
+      .from('profiles')
+      .select('first_name,last_name,job_title,department_id,phone_number,avatar_url,role,employment_status,approval_status,rejection_reason,registration_completed,employee_id,employment_type,office_location,date_of_joining,manager_name,bio,departments(name)')
+      .eq('id', id)
+      .maybeSingle()
 
     if (error) {
       errorMessage.value = `Could not load your profile from Supabase: ${error.message}`
@@ -193,33 +204,22 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
 
-    const ownProfile = data?.[0]
     if (!ownProfile) {
-      errorMessage.value = 'Your Supabase account has no profile yet. Apply the profile trigger SQL in Supabase.'
+      errorMessage.value = 'Your Supabase account has no readable employee profile. Check the profile row and its row-level security policy.'
       return
     }
 
     let rejectionReason = ownProfile.rejection_reason ?? ''
     let profileLoadError = ''
-    if (ownProfile.approval_status === 'rejected' && !rejectionReason) {
-      const { data: rejectionData, error: rejectionError } = await supabase
-        .from('profiles')
-        .select('rejection_reason')
-        .eq('id', id)
-        .maybeSingle()
-      if (rejectionError) {
-        profileLoadError = `Could not load your registration decision: ${rejectionError.message}`
-        console.error(profileLoadError, rejectionError)
-      } else {
-        rejectionReason = rejectionData?.rejection_reason ?? ''
-      }
-    }
+    const departmentRelation = Array.isArray(ownProfile.departments)
+      ? ownProfile.departments[0]
+      : ownProfile.departments
 
     profile.value = {
       firstName: ownProfile.first_name ?? '',
       lastName: ownProfile.last_name ?? '',
       jobTitle: ownProfile.job_title ?? '',
-      department: ownProfile.department_name ?? '',
+      department: departmentRelation?.name ?? '',
       departmentId: ownProfile.department_id ?? '',
       phone: ownProfile.phone_number ?? '',
       photoUrl: '',

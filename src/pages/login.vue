@@ -15,12 +15,13 @@
   const noticeMessage = ref('')
   const signupConfirmationEmail = ref('')
   const busy = ref(false)
+  const submittingAction = ref<'signup' | 'signin' | null>(null)
   const resetBusy = ref(false)
   const showPasswordResetForm = ref(false)
   const resetEmail = ref('')
   const submitButtonLabel = computed(() => {
     if (busy.value) {
-      return isSignup.value ? 'Creating account…' : 'Signing in…'
+      return submittingAction.value === 'signup' ? 'Signing up...' : 'Signing in...'
     }
     return isSignup.value ? 'Create account' : 'Sign in'
   })
@@ -35,6 +36,7 @@
     if (busy.value) return
 
     busy.value = true
+    submittingAction.value = isSignup.value ? 'signup' : 'signin'
     errorMessage.value = ''
     noticeMessage.value = ''
 
@@ -95,6 +97,7 @@
       console.error('Employee authentication form failed', error)
     } finally {
       busy.value = false
+      submittingAction.value = null
     }
   }
 
