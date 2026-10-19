@@ -235,6 +235,20 @@
 .form-error { margin: 0; color: var(--ns-text-a34c39, #a34c39); font-size: 10px; }
 .form-actions { display: flex; justify-content: flex-end; }
 .primary-action:disabled { cursor: wait; opacity: .65; }
+.registration-form { border-radius: 16px; box-shadow: 0 12px 34px rgb(15 23 42 / 6%); }
+.registration-grid input, .registration-grid select, .bio-field textarea {
+  border-radius: 8px;
+  background: var(--ns-surface-raised);
+  color: var(--ns-text-primary);
+}
+.registration-grid input:focus, .registration-grid select:focus, .bio-field textarea:focus {
+  border-color: var(--ns-primary);
+  outline: 3px solid color-mix(in srgb, var(--ns-primary) 18%, transparent);
+  outline-offset: 1px;
+}
+.registration-grid input[readonly] { background: var(--ns-surface-raised); }
+.registration-grid label > span { color: var(--ns-primary); }
+.primary-action:focus-visible { outline: 3px solid var(--ns-blue-border); outline-offset: 2px; }
 .loading-icon { animation: rotate 1s linear infinite; }
 @keyframes rotate { to { transform: rotate(360deg); } }
 @media (max-width: 620px) { .registration-grid { grid-template-columns: 1fr; } }

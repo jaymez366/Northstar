@@ -193,7 +193,8 @@
   border: 1px solid var(--ns-border-e0e6dc, #e0e6dc);
   padding: clamp(25px, 6vw, 44px);
   background: var(--ns-bg-fff, #fff);
-  box-shadow: 12px 16px 0 rgba(16, 45, 38, 0.06);
+  border-radius: 16px;
+  box-shadow: 0 20px 52px rgb(15 23 42 / 8%);
 }
 .eyebrow {
   color: var(--ns-text-758b7c, #758b7c);
@@ -230,7 +231,9 @@ input {
   background: var(--ns-bg-fbfcf9, #fbfcf9);
   color: var(--ns-text-18352d, #18352d);
   font: 12px "Manrope", sans-serif;
+  border-radius: 8px;
 }
+input:focus { border-color: var(--ns-primary); outline: 3px solid color-mix(in srgb, var(--ns-primary) 18%, transparent); outline-offset: 1px; }
 .primary-action {
   display: flex;
   min-height: 45px;
@@ -246,6 +249,9 @@ input {
 }
 .primary-action:disabled,
 .primary-action:disabled { cursor: wait; opacity: .6; }
+.primary-action { border-radius: 8px; background: var(--ns-primary); }
+.primary-action:hover:not(:disabled) { background: var(--ns-primary-hover); }
+.primary-action:focus-visible, .return-link:focus-visible { outline: 3px solid var(--ns-blue-border); outline-offset: 2px; }
 .verify-button { margin-top: 9px; }
 .continue-link { text-decoration: none; }
 .form-error, .form-message { margin: 5px 0; font-size: 10px; line-height: 1.6; }

@@ -172,8 +172,9 @@ input {
   background: var(--ns-bg-fff, #fff);
   color: var(--ns-text-18352d, #18352d);
   font: 12px "Manrope", sans-serif;
+  border-radius: 8px;
 }
-input:focus { border-color: var(--ns-border-71897b, #71897b); outline: 2px solid var(--ns-border-dce9c2, #dce9c2); }
+input:focus { border-color: var(--ns-primary); outline: 3px solid color-mix(in srgb, var(--ns-primary) 18%, transparent); outline-offset: 1px; }
 .password-field { position: relative; }
 .password-field input { padding-right: 44px; }
 .password-field button {
@@ -204,6 +205,11 @@ input:focus { border-color: var(--ns-border-71897b, #71897b); outline: 2px solid
   font: 700 11px "Manrope", sans-serif;
 }
 .admin-submit:disabled { cursor: wait; opacity: .7; }
+.admin-login-card { border-radius: 16px; box-shadow: 0 20px 52px rgb(15 23 42 / 8%); }
+.password-field button { color: var(--ns-primary); }
+.admin-submit { border-radius: 8px; background: var(--ns-primary); }
+.admin-submit:hover:not(:disabled) { background: var(--ns-primary-hover); }
+.admin-submit:focus-visible, .employee-login-link:focus-visible { outline: 3px solid var(--ns-blue-border); outline-offset: 2px; }
 .security-note { display: flex; align-items: flex-start; gap: 7px; margin: 19px 0 0; color: var(--ns-text-829187, #829187); font-size: 9px; line-height: 1.6; }
 .security-note :deep(.v-icon) { flex: none; color: var(--ns-text-6e866f, #6e866f); }
 @media (max-width: 480px) {

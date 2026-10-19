@@ -687,6 +687,47 @@ input:focus {
   font-size: 10px;
 }
 
+/* Employee authentication uses the Northstar blue palette in both themes. */
+.login-page {
+  background: var(--ns-page);
+  color: var(--ns-text-primary);
+}
+.login-nav { border-bottom-color: var(--ns-border); }
+.brand, .login-intro h1, .signal-list { color: var(--ns-text-primary); }
+.brand-mark span, .brand-dot, em, .signal-list .v-icon { color: var(--ns-primary); }
+.brand-mark span { background: var(--ns-primary); }
+.nav-note, .section-overline, .demo-label, .intro-copy { color: var(--ns-text-secondary); }
+.login-panel {
+  border: 1px solid var(--ns-border);
+  border-radius: 16px;
+  background: var(--ns-surface);
+  color: var(--ns-text-primary);
+  box-shadow: 0 20px 52px rgb(15 23 42 / 9%);
+}
+.login-panel .section-overline, label, .password-reset-form label, .mode-switch { color: var(--ns-text-secondary); }
+input, .password-reset-form input {
+  border-color: var(--ns-border);
+  border-radius: 8px;
+  background: var(--ns-surface-raised);
+  color: var(--ns-text-primary);
+}
+input::placeholder { color: var(--ns-text-secondary); }
+input:focus { outline: 2px solid var(--ns-primary); outline-offset: 1px; }
+.password-visibility-toggle, .reset-link, .profile-retry button, .mode-switch button,
+.verification-link, .secondary-submit-button { color: var(--ns-primary); }
+.password-visibility-toggle:hover, .secondary-submit-button:hover { background: var(--ns-blue-soft); }
+.password-visibility-toggle:hover, .mode-switch button:hover { color: var(--ns-primary-hover); }
+.error-message, .profile-retry { color: var(--ns-danger-text); }
+.success-message { color: var(--ns-accent); }
+.submit-button {
+  border-radius: 8px;
+  background: var(--ns-primary);
+  color: #fff;
+}
+.submit-button:hover:not(:disabled) { background: var(--ns-primary-hover); }
+.secondary-submit-button { border-color: var(--ns-blue-border); border-radius: 8px; }
+.login-footer { border-top-color: var(--ns-border); color: var(--ns-text-secondary); }
+
 @media (max-width: 760px) {
   .container {
     width: min(100% - 40px, 520px);

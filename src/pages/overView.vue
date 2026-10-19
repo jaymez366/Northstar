@@ -173,12 +173,6 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
 
 :global(*) { box-sizing: border-box; }
-:global(body) {
-  margin: 0;
-  background: var(--ns-bg-f3f5ef, #f3f5ef);
-  color: var(--ns-text-10231d, #10231d);
-  font-family: "Manrope", sans-serif;
-}
 .overview-page { min-height: 100vh; }
 .overview-header {
   height: 82px;

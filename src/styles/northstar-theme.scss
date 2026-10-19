@@ -10,6 +10,11 @@
   --ns-text-secondary: #586a82;
   --ns-border: #dfe6f0;
   --ns-primary: #2563eb;
+  --ns-primary-hover: #1d4ed8;
+  --ns-blue-soft: #eff6ff;
+  --ns-blue-highlight: #dbeafe;
+  --ns-blue-border: #bfdbfe;
+  --ns-danger-text: #b42318;
   --ns-accent: #0f766e;
   --ns-sidebar-text: #34445a;
   --ns-sidebar-muted: #708097;
@@ -28,6 +33,11 @@ html[data-northstar-theme='dark'] {
   --ns-text-secondary: #a9b7ca;
   --ns-border: #344256;
   --ns-primary: #75a7ff;
+  --ns-primary-hover: #93b9ff;
+  --ns-blue-soft: color-mix(in srgb, var(--ns-primary) 12%, var(--ns-surface));
+  --ns-blue-highlight: color-mix(in srgb, var(--ns-primary) 20%, var(--ns-surface));
+  --ns-blue-border: color-mix(in srgb, var(--ns-primary) 34%, var(--ns-border));
+  --ns-danger-text: #fda4af;
   --ns-accent: #55d6be;
   --ns-sidebar-text: #c5d0df;
   --ns-sidebar-muted: #91a0b5;
@@ -651,3 +661,88 @@ html[data-northstar-theme='dark'] {
   --ns-border-2563eb: var(--ns-primary);
   --ns-border-dce4d8: var(--ns-border);
 }
+
+/* Page-scoped adapters coordinate legacy component tokens with the blue palette. */
+:is(
+  .login-page,
+  .registration-page,
+  .verification-page,
+  .reset-page,
+  .approval-page,
+  .admin-login-page,
+  .overview-page,
+  .admin-shell
+) {
+  --ns-bg-102d26: var(--ns-surface);
+  --ns-bg-526c5c: var(--ns-primary);
+  --ns-bg-e16b4c: var(--ns-primary);
+  --ns-bg-d4ec66: var(--ns-blue-soft);
+  --ns-bg-eaf3bd: var(--ns-blue-soft);
+  --ns-bg-eef2e8: var(--ns-blue-soft);
+  --ns-bg-f5d4c9: var(--ns-blue-soft);
+  --ns-bg-f8e4d8: var(--ns-blue-soft);
+  --ns-bg-e9efe3: var(--ns-blue-soft);
+  --ns-bg-e8f3e8: var(--ns-blue-soft);
+  --ns-bg-f8e8df: var(--ns-blue-soft);
+  --ns-text-e16b4c: var(--ns-primary);
+  --ns-text-d4ec66: var(--ns-primary);
+  --ns-text-bf593d: var(--ns-primary);
+  --ns-text-526c5c: var(--ns-primary);
+  --ns-text-526738: var(--ns-primary);
+  --ns-text-687f6e: var(--ns-primary);
+  --ns-text-60796a: var(--ns-primary);
+  --ns-text-9e533f: var(--ns-primary);
+  --ns-text-b8583e: var(--ns-primary);
+  --ns-text-334b3e: var(--ns-text-primary);
+  --ns-text-40564a: var(--ns-text-primary);
+  --ns-text-53665a: var(--ns-text-secondary);
+  --ns-text-67816e: var(--ns-text-secondary);
+  --ns-text-89968d: var(--ns-text-secondary);
+  --ns-border-e16b4c: var(--ns-primary);
+  --ns-border-9caf91: var(--ns-blue-border);
+}
+
+.overview-page {
+  background: var(--ns-page);
+  color: var(--ns-text-primary);
+}
+
+.overview-page .summary-card,
+.overview-page .workspace-card {
+  border: 1px solid var(--ns-border);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 5%);
+}
+
+.overview-page .dark-card {
+  background: var(--ns-blue-soft);
+  color: var(--ns-text-primary);
+}
+
+.overview-page .dark-card .metric,
+.overview-page .dark-card .status-label,
+.overview-page .dark-card .card-detail {
+  color: var(--ns-primary);
+}
+
+.overview-page .response-card .workspace-icon {
+  color: var(--ns-primary);
+}
+
+.overview-page .dashboard-section,
+.overview-page .notification-summary {
+  border-radius: 14px;
+}
+
+.overview-page .workspace-card:hover,
+.overview-page .dashboard-section-heading > a:hover,
+.overview-page .overview-footer a:hover {
+  color: var(--ns-primary-hover);
+}
+
+.admin-shell .surface-card {
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 5%);
+}
+
+.admin-shell .admin-topbar { box-shadow: 0 4px 18px rgb(15 23 42 / 4%); }

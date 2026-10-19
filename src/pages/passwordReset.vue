@@ -180,5 +180,30 @@ input:focus { outline: 2px solid var(--ns-border-d4ec66, #d4ec66); outline-offse
 .error-message { color: var(--ns-text-ffab91, #ffab91); font-size: 10px; line-height: 1.6; }
 .success-message { color: var(--ns-text-d4ec66, #d4ec66); font-size: 10px; line-height: 1.6; }
 .return-link { display: block; margin-top: 20px; color: var(--ns-text-d4ec66, #d4ec66); text-align: center; text-decoration: none; font-size: 10px; }
+.reset-card {
+  border: 1px solid var(--ns-border);
+  border-radius: 16px;
+  background: var(--ns-surface);
+  color: var(--ns-text-primary);
+  box-shadow: 0 20px 52px rgb(15 23 42 / 9%);
+}
+.reset-card .section-overline, .reset-card label, .reset-copy { color: var(--ns-text-secondary); }
+.reset-card h1 { color: var(--ns-text-primary); }
+.reset-card h1 em, .reset-card .return-link { color: var(--ns-primary); }
+.reset-card input {
+  border-color: var(--ns-border);
+  border-radius: 8px;
+  background: var(--ns-surface-raised);
+  color: var(--ns-text-primary);
+}
+.reset-card input:focus { outline-color: var(--ns-primary); }
+.reset-card .error-message { color: var(--ns-danger-text); }
+.reset-card .success-message { color: var(--ns-accent); }
+.reset-card .submit-button {
+  border-radius: 8px;
+  background: var(--ns-primary);
+  color: #fff;
+}
+.reset-card .submit-button:hover:not(:disabled) { background: var(--ns-primary-hover); }
 @media (max-width: 760px) { .reset-page { display: block; padding: 20px; } .reset-card { margin: 12vh auto 0; padding: 28px 22px; } }
 </style>
