@@ -309,14 +309,20 @@
 :global(html) {
   scroll-behavior: smooth;
 }
-:global(body) {
-  margin: 0;
-  background: #f3f5ef;
-  color: #10231d;
-  font-family: "Manrope", sans-serif;
-}
 .site-shell {
   overflow: hidden;
+  background: #fff;
+  color: #1e293b;
+  font-family: "Manrope", sans-serif;
+  --landing-white: #fff;
+  --landing-soft: #eff6ff;
+  --landing-blue: #2563eb;
+  --landing-blue-dark: #163b65;
+  --landing-navy: #0f172a;
+  --landing-text: #1e293b;
+  --landing-muted: #64748b;
+  --landing-border: #dbeafe;
+  --landing-card: #fff;
 }
 .container {
   width: min(1160px, calc(100% - 64px));
@@ -1138,5 +1144,166 @@ h2 span,
   .solution-details {
     margin-top: 45px;
   }
+}
+
+/* Public landing page palette; kept local so shared auth and workspace styles
+   continue to use their existing Northstar theme. */
+.site-shell {
+  background: var(--landing-white);
+  color: var(--landing-text);
+}
+.hero {
+  background:
+    radial-gradient(ellipse at 80% 18%, rgb(219 234 254 / 58%), transparent 36%),
+    linear-gradient(135deg, #fff 0%, #f8fbff 62%, #eff6ff 100%);
+  color: var(--landing-navy);
+}
+.hero::after {
+  opacity: .32;
+  background-image:
+    linear-gradient(90deg, transparent 49.5%, #bfdbfe 49.5%, #bfdbfe 50.5%, transparent 50.5%),
+    linear-gradient(#bfdbfe 1px, transparent 1px);
+}
+.nav { border-bottom-color: var(--landing-border); }
+.brand, .footer .brand { color: var(--landing-navy); }
+.brand-mark span { background: var(--landing-blue); }
+.brand-dot { color: var(--landing-blue); }
+.nav-links a, .nav-cta, .nav-login { color: var(--landing-blue-dark); }
+.nav-links a:hover, .nav-cta:hover, .nav-login:hover { color: var(--landing-blue); }
+.kicker, .hero h1 em, h2 span, .contact-band em { color: var(--landing-blue); }
+.pulse { background: var(--landing-blue); box-shadow: 0 0 0 5px rgb(37 99 235 / 11%); }
+.hero-lede { color: var(--landing-muted); }
+.button-primary {
+  border-radius: 8px;
+  background: var(--landing-blue);
+  color: #fff;
+  box-shadow: 0 8px 18px rgb(37 99 235 / 18%);
+}
+.button-primary:hover { background: #1d4ed8; }
+.text-link { color: var(--landing-blue-dark); }
+.text-link:hover { color: var(--landing-blue); }
+.trust-row { color: var(--landing-muted); }
+.trust-row strong { color: var(--landing-blue-dark); }
+.visual-label { color: var(--landing-muted); }
+.dashboard-card {
+  border: 1px solid var(--landing-border);
+  border-radius: 14px;
+  background: var(--landing-card);
+  color: var(--landing-text);
+  box-shadow: 18px 22px 0 rgb(22 59 101 / 10%);
+}
+.dashboard-top, .time { color: var(--landing-muted); }
+.mini-brand { background: var(--landing-blue-dark); color: #fff; }
+.mini-brand span { color: #93c5fd; }
+.incident-title small, .dashboard-bottom small { color: var(--landing-muted); }
+.status-dot, .visual-label span { background: #f59e0b; }
+.map-panel { background: #eaf3ff; }
+.map-grid {
+  background-image:
+    linear-gradient(28deg, transparent 48%, #bfdbfe 49%, transparent 50%),
+    linear-gradient(112deg, transparent 47%, #bfdbfe 48%, transparent 49%);
+}
+.route-one { --route-color: #2563eb; background: var(--route-color); }
+.route-two { --route-color: #0f766e; background: var(--route-color); }
+.map-pin { border-color: #fff; background: var(--landing-blue); }
+.pin-two { background: #0f766e; }
+.map-legend { background: rgb(255 255 255 / 92%); color: var(--landing-text); }
+.green-dot { background: #0f766e; }
+.orange-dot { background: #f59e0b; }
+.dashboard-bottom strong span { color: var(--landing-muted); }
+.avatar-stack span { border-color: #fff; background: #bfdbfe; color: var(--landing-blue-dark); }
+.avatar-stack span:nth-child(2) { background: #dbeafe; }
+.avatar-stack span:nth-child(3) { background: var(--landing-blue-dark); color: #fff; }
+.floating-note {
+  border: 1px solid var(--landing-border);
+  border-radius: 10px;
+  background: var(--landing-card);
+  color: var(--landing-text);
+  box-shadow: 7px 8px 0 rgb(22 59 101 / 10%);
+}
+.check-icon { background: #dbeafe; color: var(--landing-blue); }
+.floating-note small, .hero-footer { color: var(--landing-muted); }
+.footer-line { background: #93c5fd; }
+.intro-band { background: var(--landing-white); }
+.section-overline { color: var(--landing-blue); }
+.intro-band h2, .section-heading h2, .solution-detail h3 { color: var(--landing-navy); }
+.intro-text, .section-heading > p { color: var(--landing-muted); }
+.section-heading { border-top-color: var(--landing-border); }
+.solution-link { border-bottom-color: var(--landing-border); color: var(--landing-blue-dark); }
+.solution-link span, .solution-eyebrow { color: var(--landing-blue); }
+.solution-note { color: var(--landing-muted); }
+.solution-detail, .response-detail {
+  border: 1px solid var(--landing-border);
+  border-radius: 14px;
+  background: var(--landing-soft);
+}
+.solution-detail > p:not(.solution-eyebrow), .detail-metric span { color: var(--landing-muted); }
+.contact-band { background: var(--landing-blue-dark); color: #fff; }
+.contact-band .section-overline { color: #bfdbfe; }
+.contact-band em { color: #93c5fd; }
+.button-light {
+  border: 1px solid rgb(255 255 255 / 65%);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--landing-blue-dark);
+}
+.button-light:hover { background: #eff6ff; }
+.footer { color: var(--landing-muted); }
+
+html[data-northstar-theme='dark'] .site-shell {
+  --landing-white: #111827;
+  --landing-soft: #1c2738;
+  --landing-blue: #8ab4ff;
+  --landing-blue-dark: #c6d9fb;
+  --landing-navy: #e6edf7;
+  --landing-text: #e6edf7;
+  --landing-muted: #a9b7ca;
+  --landing-border: #344256;
+  --landing-card: #1c2738;
+  background: var(--landing-white);
+  color: var(--landing-text);
+}
+html[data-northstar-theme='dark'] .hero {
+  background:
+    radial-gradient(ellipse at 80% 18%, rgb(65 100 150 / 16%), transparent 36%),
+    linear-gradient(135deg, #111827 0%, #151e2e 100%);
+}
+html[data-northstar-theme='dark'] .hero::after { opacity: .12; }
+html[data-northstar-theme='dark'] .nav-cta,
+html[data-northstar-theme='dark'] .nav-login,
+html[data-northstar-theme='dark'] .nav-links a,
+html[data-northstar-theme='dark'] .text-link,
+html[data-northstar-theme='dark'] .solution-link { color: var(--landing-blue-dark); }
+html[data-northstar-theme='dark'] .button-primary {
+  background: #75a7ff;
+  color: #111827;
+}
+html[data-northstar-theme='dark'] .button-primary:hover { background: #93b9ff; }
+html[data-northstar-theme='dark'] .dashboard-card,
+html[data-northstar-theme='dark'] .floating-note {
+  box-shadow: 18px 22px 0 rgb(4 10 20 / 28%);
+}
+html[data-northstar-theme='dark'] .map-panel { background: #26364a; }
+html[data-northstar-theme='dark'] .map-grid {
+  background-image:
+    linear-gradient(28deg, transparent 48%, #526680 49%, transparent 50%),
+    linear-gradient(112deg, transparent 47%, #526680 48%, transparent 49%);
+}
+html[data-northstar-theme='dark'] .route-two { --route-color: #55d6be; }
+html[data-northstar-theme='dark'] .map-legend { background: rgb(28 39 56 / 94%); }
+html[data-northstar-theme='dark'] .avatar-stack span { border-color: #1c2738; }
+html[data-northstar-theme='dark'] .contact-band { background: #182a43; }
+html[data-northstar-theme='dark'] .button-light {
+  border-color: #526680;
+  background: #243247;
+  color: #e6edf7;
+}
+html[data-northstar-theme='dark'] .button-light:hover { background: #2b394d; }
+
+@media (max-width: 420px) {
+  .nav { gap: 12px; }
+  .brand { font-size: 18px; }
+  .nav-login { white-space: nowrap; }
+  .hero h1 { font-size: clamp(40px, 12vw, 52px); }
 }
 </style>
