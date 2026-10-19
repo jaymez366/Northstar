@@ -3,7 +3,6 @@
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
-  import { disableDevicePush, enableDevicePush, hasDevicePushSubscription } from '@/services/pushNotifications'
   import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
   const auth = useAuthStore()
@@ -12,9 +11,6 @@
   const saved = ref(false)
   const saving = ref(false)
   const settingsError = ref('')
-  const devicePushEnabled = ref(false)
-  const devicePushBusy = ref(false)
-  const devicePushMessage = ref('')
   const defaults = {
     announcements: true,
     messages: true,
@@ -25,7 +21,6 @@
   const preferences = reactive({ ...defaults })
 
   async function loadSettings () {
-    if (!auth.userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(auth.userId)) return
     if (!isSupabaseConfigured || !supabase) {
       settingsError.value = 'Northstar Supabase is not configured, so account settings cannot be loaded.'
       return
@@ -51,10 +46,6 @@
   }, { immediate: true })
 
   async function saveSettings () {
-    if (!auth.userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(auth.userId)) {
-      settingsError.value = 'Sign in again before saving account settings.'
-      return
-    }
     if (!isSupabaseConfigured || !supabase) {
       settingsError.value = 'Saving settings requires a configured Northstar Supabase connection.'
       return
@@ -84,29 +75,8 @@
     })
   }
 
-  async function toggleDevicePush () {
-    devicePushBusy.value = true
-    devicePushMessage.value = ''
-    try {
-      if (devicePushEnabled.value) {
-        const result = await disableDevicePush()
-        devicePushMessage.value = result.message
-        if (result.success) devicePushEnabled.value = false
-      } else {
-        const result = await enableDevicePush()
-        devicePushMessage.value = result.message
-        if (result.success) devicePushEnabled.value = true
-      }
-    } catch (error) {
-      devicePushMessage.value = error instanceof Error ? error.message : 'Could not update device notification settings.'
-    } finally {
-      devicePushBusy.value = false
-    }
-  }
-
   onMounted(() => {
     void loadSettings()
-    void hasDevicePushSubscription().then(enabled => { devicePushEnabled.value = enabled })
   })
 </script>
 
@@ -121,7 +91,7 @@
 
       <div class="settings-sections">
         <section id="account" class="settings-card surface-card"><h2>Account</h2><p>Manage your Northstar account details.</p><router-link to="/profile">Edit your profile <v-icon icon="mdi-arrow-right" size="15" /></router-link><div class="settings-row"><span><strong>Email address</strong><small>{{ auth.userEmail }}</small></span><v-icon icon="mdi-check-circle-outline" size="19" /></div></section>
-        <section id="notifications" class="settings-card surface-card"><h2>Notifications</h2><p>Choose the updates you want to hear about.</p><label class="setting-toggle"><span><strong>Announcements</strong><small>Company news and important updates</small></span><input v-model="preferences.announcements" type="checkbox"></label><label class="setting-toggle"><span><strong>Direct messages</strong><small>When a colleague sends you a message</small></span><input v-model="preferences.messages" type="checkbox"></label><label class="setting-toggle"><span><strong>Events and reminders</strong><small>Invitations and upcoming event reminders</small></span><input v-model="preferences.events" type="checkbox"></label><div class="settings-row device-push-row"><span><strong>Device notifications</strong><small>Receive notifications when Northstar is not open.</small><small v-if="devicePushMessage" role="status">{{ devicePushMessage }}</small></span><button class="secondary-action" type="button" :disabled="devicePushBusy" @click="toggleDevicePush">{{ devicePushBusy ? 'Updating…' : (devicePushEnabled ? 'Turn off' : 'Enable on this device') }}</button></div></section>
+        <section id="notifications" class="settings-card surface-card"><h2>Notifications</h2><p>Choose the updates you want to hear about.</p><label class="setting-toggle"><span><strong>Announcements</strong><small>Company news and important updates</small></span><input v-model="preferences.announcements" type="checkbox"></label><label class="setting-toggle"><span><strong>Direct messages</strong><small>When a colleague sends you a message</small></span><input v-model="preferences.messages" type="checkbox"></label><label class="setting-toggle"><span><strong>Events and reminders</strong><small>Invitations and upcoming event reminders</small></span><input v-model="preferences.events" type="checkbox"></label></section>
         <section id="security" class="settings-card surface-card"><h2>Security</h2><p>Keep your account protected.</p><div class="settings-row"><span><strong>Password</strong><small>Update your password through your account provider.</small></span><v-icon icon="mdi-lock-outline" size="19" /></div><div class="settings-row"><span><strong>Active session</strong><small>This device · Signed in as {{ auth.userEmail }}</small></span><span class="secure-label">SECURE</span></div></section>
         <section id="appearance" class="settings-card surface-card"><h2>Appearance</h2><p>Adjust how information is displayed.</p><label class="setting-toggle"><span><strong>Compact display</strong><small>Use tighter spacing across the workspace</small></span><input v-model="preferences.compact" type="checkbox"></label></section>
         <section id="language" class="settings-card surface-card"><h2>Language</h2><p>Choose your preferred display language.</p><select v-model="preferences.language" class="field-control"><option value="en">English</option><option value="ja">日本語</option></select></section>

@@ -93,9 +93,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const departmentList = ref<{ id: string, name: string, description: string }[]>([])
   const activityLogs = ref<{ id: string, action: string, description: string, createdAt: string, user: string }[]>([])
   const backendError = ref('')
+  const messageToast = ref<{ title: string, preview: string, conversationId: string, notificationId: string } | null>(null)
   const loading = ref(false)
   let realtimeChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   let notificationChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
+  let messageToastTimer: ReturnType<typeof setTimeout> | undefined
   const unreadNotifications = computed(() => notificationList.value.filter(item => item.unread).length)
   const departments = computed(() => {
     return departmentList.value.map(department => ({
@@ -144,16 +146,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function load () {
     const auth = useAuthStore()
     if (!isUuid(auth.userId) || auth.isAdmin || !auth.canAccessEmployeeWorkspace) {
-      employeeList.value = []
-      announcementList.value = []
-      conversations.value = []
-      notificationList.value = []
-      eventList.value = []
-      resourceList.value = []
-      departmentList.value = []
-      activityLogs.value = []
-      backendError.value = ''
-      loading.value = false
+      clearWorkspace()
       return
     }
     if (!isSupabaseConfigured || !supabase) {
@@ -161,7 +154,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return
     }
     const client = supabase
-    if (loading.value) return
+    if (loading.value) {
+      return
+    }
 
     loading.value = true
     backendError.value = ''
@@ -253,11 +248,33 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
     }
 
-    const { data: notificationRows, error: notificationError } = await supabase
+    let notificationRows: Array<{
+      id: string
+      title: string
+      message: string
+      notification_type: string
+      is_read: boolean
+      created_at: string
+      link_to?: string | null
+    }> | null = null
+    let notificationError: { message: string } | null = null
+    const notificationQuery = await supabase
       .from('notifications')
       .select('id,title,message,notification_type,is_read,created_at,link_to')
       .eq('user_id', auth.userId)
       .order('created_at', { ascending: false })
+    if (notificationQuery.error && isMissingNotificationLinkToColumn(notificationQuery.error)) {
+      const fallbackQuery = await supabase
+        .from('notifications')
+        .select('id,title,message,notification_type,is_read,created_at')
+        .eq('user_id', auth.userId)
+        .order('created_at', { ascending: false })
+      notificationRows = fallbackQuery.data
+      notificationError = fallbackQuery.error
+    } else {
+      notificationRows = notificationQuery.data
+      notificationError = notificationQuery.error
+    }
     if (notificationError) {
       recordError('notifications', notificationError)
     } else {
@@ -268,7 +285,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         category: notificationCategory(row.notification_type),
         createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)),
         unread: !row.is_read,
-        to: notificationRoute(row.notification_type, row.link_to),
+        to: notificationRoute(row.notification_type, row.title, row.link_to),
       }))
     }
 
@@ -393,13 +410,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function subscribeToMessages () {
-    if (!isSupabaseConfigured || !supabase || !useAuthStore().userId || realtimeChannel) {
+    const auth = useAuthStore()
+    if (!isSupabaseConfigured || !supabase || !isUuid(auth.userId) || auth.isAdmin || !auth.canAccessEmployeeWorkspace || realtimeChannel) {
       return
     }
     realtimeChannel = supabase
       .channel(`northstar-messages-${useAuthStore().userId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const message = payload.new as { id: string, conversation_id: string, sender_id: string, content: string, created_at: string }
+        if (!isUuid(message.id) || !isUuid(message.conversation_id) || !isUuid(message.sender_id)) return
         const conversation = conversations.value.find(item => item.id === message.conversation_id)
         if (!conversation || conversation.messages.some(item => item.id === message.id)) {
           return
@@ -439,8 +458,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           notification_type: string
           is_read: boolean
           created_at: string
-          link_to: string | null
+          link_to?: string | null
         }
+        if (!isUuid(notification.id)) return
         if (notificationList.value.some(item => item.id === notification.id)) {
           return
         }
@@ -451,8 +471,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           category: notificationCategory(notification.notification_type),
           createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(notification.created_at)),
           unread: !notification.is_read,
-          to: notificationRoute(notification.notification_type, notification.link_to),
+          to: notificationRoute(notification.notification_type, notification.title, notification.link_to),
         })
+        if (notification.notification_type === 'message') {
+          const conversationId = notification.link_to?.match(/[?&]conversation=([0-9a-f-]+)/i)?.[1] ?? ''
+          if (messageToastTimer) clearTimeout(messageToastTimer)
+          messageToast.value = { title: notification.title, preview: notification.message, conversationId, notificationId: notification.id }
+          messageToastTimer = setTimeout(() => { messageToast.value = null }, 7000)
+        }
       })
       .subscribe(status => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -471,10 +497,27 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     realtimeChannel = null
     notificationChannel = null
+    if (messageToastTimer) clearTimeout(messageToastTimer)
+    messageToast.value = null
+  }
+
+  function clearWorkspace () {
+    unsubscribeFromMessages()
+    employeeList.value = []
+    announcementList.value = []
+    conversations.value = []
+    notificationList.value = []
+    eventList.value = []
+    resourceList.value = []
+    departmentList.value = []
+    activityLogs.value = []
+    backendError.value = ''
+    loading.value = false
   }
 
   async function startConversation (employeeId: string) {
-    if (!isUuid(employeeId) || !isUuid(useAuthStore().userId) || employeeId === useAuthStore().userId) {
+    const auth = useAuthStore()
+    if (!isUuid(employeeId) || !isUuid(auth.userId) || employeeId === auth.userId || auth.isAdmin || !auth.canAccessEmployeeWorkspace) {
       backendError.value = 'Choose a valid employee before starting a conversation.'
       return ''
     }
@@ -628,7 +671,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function toggleRsvp (id: string) {
-    if (!isUuid(id) || !isUuid(useAuthStore().userId)) return
+    const auth = useAuthStore()
+    if (!isUuid(id) || !isUuid(auth.userId)) return
     const event = eventList.value.find(item => item.id === id)
     if (!event) {
       return
@@ -637,7 +681,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       backendError.value = 'Updating event RSVPs requires a configured Northstar Supabase connection.'
       return
     }
-    const auth = useAuthStore()
     const { error } = await supabase.from('event_attendees').upsert({
       event_id: id,
       user_id: auth.userId,
@@ -654,7 +697,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function togglePinned (id: string) {
     const auth = useAuthStore()
-    if (auth.isAdmin || auth.profile.role !== 'manager' || !isUuid(id) || !isUuid(auth.userId)) return
+    if (!auth.isAuthenticated || auth.isAdmin || auth.profile.role !== 'manager' || !auth.canAccessEmployeeWorkspace || !isUuid(id) || !isUuid(auth.userId)) {
+      return
+    }
     const announcement = announcementList.value.find(item => item.id === id)
     if (!announcement) {
       return
@@ -674,7 +719,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function publishAnnouncement (title: string, description: string, author: string) {
     const auth = useAuthStore()
-    if (auth.isAdmin || auth.profile.role !== 'employee' || !auth.canAccessEmployeeWorkspace) return false
+    if (!auth.isAuthenticated || auth.isAdmin || auth.profile.role !== 'employee' || !auth.canAccessEmployeeWorkspace || !isUuid(auth.userId)) {
+      backendError.value = 'Only active employee accounts can publish announcements.'
+      return false
+    }
     const trimmedTitle = title.trim()
     const trimmedDescription = description.trim()
     if (!trimmedTitle || !trimmedDescription) {
@@ -726,17 +774,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   return {
     employees: employeeList,
     announcements: announcementList,
-    loadAnnouncements,
     conversations,
     notifications: notificationList,
     events: eventList,
     resources: resourceList,
     activityLogs,
     backendError,
+    messageToast,
+    dismissMessageToast: () => { messageToast.value = null },
     loading,
     load,
+    loadAnnouncements,
     subscribeToMessages,
     unsubscribeFromMessages,
+    clearWorkspace,
     startConversation,
     departments,
     unreadNotifications,
@@ -783,14 +834,26 @@ function notificationCategory (type: string): WorkspaceNotification['category'] 
   return 'Announcements'
 }
 
-function notificationRoute (type: string, linkTo?: string | null) {
+function notificationRoute (type: string, title = '', linkTo?: string | null) {
   if (linkTo?.startsWith('/') && !linkTo.startsWith('//')) {
     return linkTo
   }
+  if (type === 'people' && title === 'Registration Approved') return '/overview'
+  if (type === 'people' && title === 'Registration Update') return '/pending-approval'
   return ({
     message: '/messages',
     event: '/events',
     people: '/employees',
     resource: '/resources',
   } as Record<string, string>)[type] ?? '/announcements'
+}
+
+function isMissingNotificationLinkToColumn (error: { message: string, code?: string }) {
+  const message = error.message.toLowerCase()
+  return message.includes('link_to') && (
+    error.code === '42703'
+    || error.code === 'PGRST204'
+    || message.includes('does not exist')
+    || message.includes('schema cache')
+  )
 }

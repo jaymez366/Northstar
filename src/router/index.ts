@@ -114,7 +114,7 @@ const router = createRouter({
     {
       path: '/disaster-management',
       component: DisasterManagement,
-      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowDesignatedAdmin: true, adminReadable: true },
     },
     {
       path: '/login',
@@ -199,7 +199,7 @@ function getAuthenticationRedirect (to: RouteLocationNormalized, auth: AuthStore
     }
   }
 
-  if (to.meta.requiresEmployeeWorkspace && auth.isAdmin) {
+  if (to.meta.requiresEmployeeWorkspace && auth.isAdmin && !to.meta.allowDesignatedAdmin) {
     return '/admin'
   }
 

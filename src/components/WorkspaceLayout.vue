@@ -18,6 +18,7 @@
     { title: 'Departments', to: '/departments', icon: 'mdi-domain' },
     { title: 'Events', to: '/events', icon: 'mdi-calendar-month-outline' },
     { title: 'Resources', to: '/resources', icon: 'mdi-folder-outline' },
+    { title: 'Disaster management', to: '/disaster-management', icon: 'mdi-shield-alert-outline' },
   ]
 
   async function logout () {
@@ -25,6 +26,14 @@
       workspace.clearWorkspace()
       await router.replace('/login')
     }
+  }
+
+  function openMessageToast () {
+    const conversationId = workspace.messageToast?.conversationId
+    const notificationId = workspace.messageToast?.notificationId
+    if (notificationId) void workspace.markNotificationRead(notificationId)
+    workspace.dismissMessageToast()
+    void router.push(conversationId ? { path: '/messages', query: { conversation: conversationId } } : '/messages')
   }
 
   watch(() => auth.isAuthenticated, authenticated => {
@@ -134,6 +143,21 @@
         <slot />
       </main>
     </div>
+    <v-snackbar
+      :model-value="Boolean(workspace.messageToast)"
+      location="bottom right"
+      :timeout="-1"
+      @update:model-value="visible => { if (!visible) workspace.dismissMessageToast() }"
+    >
+      <button class="message-toast" type="button" @click="openMessageToast">
+        <strong>{{ workspace.messageToast?.title }}</strong>
+        <span>{{ workspace.messageToast?.preview }}</span>
+      </button>
+      <template #actions>
+        <v-btn color="secondary" variant="text" @click="openMessageToast">Open</v-btn>
+        <v-btn icon="mdi-close" variant="text" aria-label="Dismiss message notification" @click="workspace.dismissMessageToast" />
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
@@ -237,6 +261,9 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
 .compact-workspace .employee-card, .compact-workspace .announcement-card, .compact-workspace .resource-card { padding: 13px; }
 .workspace-main > main { min-height: calc(100vh - 150px); }
 .backend-alert { margin-bottom: 18px; font-size: 11px; }
+.message-toast { display: grid; max-width: min(58vw, 420px); gap: 4px; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.message-toast strong { font-size: 12px; }
+.message-toast span { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin: 6px 0 25px; }
 .page-heading .eyebrow { margin: 0 0 9px; color: #71897b; font: 10px "DM Mono", monospace; letter-spacing: 1.5px; }
 .page-heading h1 { margin: 0; color: #18352d; font-size: clamp(28px, 3vw, 38px); line-height: 1.1; letter-spacing: -1.8px; }

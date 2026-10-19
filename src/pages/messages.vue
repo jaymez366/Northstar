@@ -7,22 +7,31 @@
   const workspace = useWorkspaceStore()
   const search = ref('')
   const draft = ref('')
-  const selectedId = ref(workspace.conversations.find(item => item.employeeId === route.query.employee)?.id ?? workspace.conversations[0]?.id ?? '')
+  const selectedId = ref((typeof route.query.conversation === 'string' ? route.query.conversation : '') || workspace.conversations.find(item => item.employeeId === route.query.employee)?.id || workspace.conversations[0]?.id || '')
+  const startingEmployeeId = ref('')
   const messageList = ref<HTMLElement | null>(null)
   const selectedConversation = computed(() => workspace.conversations.find(item => item.id === selectedId.value))
   const filteredConversations = computed(() => workspace.conversations.filter(item => item.name.toLowerCase().includes(search.value.trim().toLowerCase())))
 
-  watch(() => route.query.employee, employeeId => {
-    if (typeof employeeId !== 'string') return
+  watch(() => [route.query.conversation, route.query.employee, workspace.conversations.length], async () => {
+    const conversationId = typeof route.query.conversation === 'string' ? route.query.conversation : ''
+    if (conversationId && workspace.conversations.some(item => item.id === conversationId)) {
+      selectedId.value = conversationId
+      return
+    }
+    const employeeId = typeof route.query.employee === 'string' ? route.query.employee : ''
+    if (!employeeId) return
     const match = workspace.conversations.find(item => item.employeeId === employeeId)
     if (match) {
       selectedId.value = match.id
       return
     }
-    void workspace.startConversation(employeeId).then(id => {
-      if (id) selectedId.value = id
-    })
-  })
+    if (startingEmployeeId.value === employeeId) return
+    startingEmployeeId.value = employeeId
+    const id = await workspace.startConversation(employeeId)
+    if (id) selectedId.value = id
+    startingEmployeeId.value = ''
+  }, { immediate: true })
 
   watch(selectedId, conversationId => {
     if (conversationId) void workspace.markConversationRead(conversationId)
