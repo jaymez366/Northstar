@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 
   const auth = useAuthStore()
   const router = useRouter()
@@ -33,6 +34,8 @@
           icon="mdi-arrow-top-right"
           size="16"
         /></router-link>
+
+        <ThemeSwitcher class="landing-theme-switcher" />
 
         <button
           v-if="auth.isAuthenticated"
@@ -95,11 +98,11 @@
           </div>
 
           <div class="trust-row">
-            <span>Trusted by teams at</span>
+            <span>BUILT FOR</span>
 
-            <strong>ACME</strong>
+            <strong>Everyday updates</strong>
 
-            <strong>WAYFINDER</strong><strong>vertex</strong>
+            <strong>Critical moments</strong><strong>Team readiness</strong>
           </div>
         </div>
 
@@ -107,13 +110,13 @@
           aria-label="Northstar incident response dashboard preview"
           class="hero-visual"
         >
-          <div class="visual-label">LIVE OPERATIONS VIEW <span /></div>
+          <div class="visual-label">COMMUNICATION PREVIEW <span /></div>
 
           <div class="dashboard-card">
             <div class="dashboard-top">
               <span class="mini-brand">N<span>•</span></span>
 
-              <span>Response room / 04</span>
+              <span>Response workspace</span>
 
               <v-icon icon="mdi-dots-horizontal" />
             </div>
@@ -122,12 +125,12 @@
               <span class="status-dot" />
 
               <div>
-                <small>ACTIVE INCIDENT</small>
+                <small>RESPONSE PLAN</small>
 
                 <strong>Severe weather protocol</strong>
               </div>
 
-              <span class="time">09:41</span>
+              <span class="time">READY</span>
             </div>
 
             <div class="map-panel">
@@ -149,14 +152,16 @@
             </div>
 
             <div class="dashboard-bottom">
-              <div><small>PEOPLE REACHED</small><strong>12,840</strong></div>
+              <div><small>TEAM CONNECTION</small><strong>One update at a time</strong></div>
 
               <div>
-                <small>OPEN TASKS</small><strong>08 <span>/ 24</span></strong>
+                <small>COMMUNICATION HUB</small><strong>Ready for your team</strong>
               </div>
 
               <div class="avatar-stack">
-                <span>JD</span><span>MK</span><span>+9</span>
+                <span><v-icon icon="mdi-message-text-outline" size="14" /></span>
+                <span><v-icon icon="mdi-bullhorn-outline" size="14" /></span>
+                <span><v-icon icon="mdi-shield-check-outline" size="14" /></span>
               </div>
             </div>
           </div>
@@ -168,9 +173,9 @@
             /></span>
 
             <div>
-              <strong>All clear update sent</strong>
+              <strong>Incident updates</strong>
 
-              <small>To 4,208 employees · just now</small>
+              <small>Ready when your team needs them.</small>
             </div>
           </div>
         </div>
@@ -247,7 +252,7 @@
             </p>
 
             <div class="detail-metric">
-              <strong>94%</strong><span>message reach in 6 min</span>
+              <strong>One platform</strong><span>for everyday team communication</span>
             </div>
           </article>
 
@@ -261,7 +266,7 @@
             </p>
 
             <div class="detail-metric">
-              <strong>08:42</strong><span>average time to first update</span>
+              <strong>Ready to respond</strong><span>when important updates matter</span>
             </div>
           </article>
         </div>
@@ -1249,6 +1254,32 @@ h2 span,
 }
 .button-light:hover { background: #eff6ff; }
 .footer { color: var(--landing-muted); }
+.dashboard-bottom > div:not(.avatar-stack) { flex: 1; min-width: 0; }
+.dashboard-bottom > div > strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+.detail-metric strong {
+  font-size: clamp(22px, 2.5vw, 30px);
+  line-height: 1.2;
+}
+.button, .button-light, .solution-detail, .dashboard-card, .floating-note {
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+.button-primary:hover, .button-light:hover { transform: translateY(-2px); }
+.solution-detail:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgb(22 59 101 / 9%);
+}
+.landing-theme-switcher :deep(.theme-switcher-button) {
+  border-color: var(--landing-border);
+  background: var(--landing-card);
+  color: var(--landing-blue-dark);
+}
+.landing-theme-switcher :deep(.theme-switcher-button:hover) {
+  border-color: var(--landing-blue);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);
+}
 
 html[data-northstar-theme='dark'] .site-shell {
   --landing-white: #111827;
@@ -1299,11 +1330,45 @@ html[data-northstar-theme='dark'] .button-light {
   color: #e6edf7;
 }
 html[data-northstar-theme='dark'] .button-light:hover { background: #2b394d; }
+html[data-northstar-theme='dark'] .landing-theme-switcher :deep(.theme-switcher-button) {
+  border-color: #465a74;
+  background: #1c2738;
+  color: #e6edf7;
+}
+html[data-northstar-theme='dark'] .landing-theme-switcher :deep(.theme-switcher-button:hover) {
+  border-color: #8ab4ff;
+  box-shadow: 0 0 0 3px rgb(138 180 255 / 14%);
+}
+html[data-northstar-theme='dark'] .landing-theme-switcher :deep(.theme-switcher-button .v-icon:first-child) {
+  color: #93c5fd;
+}
 
+@media (max-width: 800px) {
+  .landing-theme-switcher :deep(.theme-switcher-button) {
+    min-width: 40px;
+    min-height: 40px;
+    width: 40px;
+    padding: 0;
+  }
+  .landing-theme-switcher :deep(.theme-switcher-button span),
+  .landing-theme-switcher :deep(.theme-switcher-arrow) { display: none; }
+}
 @media (max-width: 420px) {
   .nav { gap: 12px; }
   .brand { font-size: 18px; }
   .nav-login { white-space: nowrap; }
   .hero h1 { font-size: clamp(40px, 12vw, 52px); }
+  .dashboard-bottom { gap: 8px; }
+  .dashboard-bottom > div > strong { font-size: 12px; }
+  .dashboard-bottom .avatar-stack { display: none; }
+  .detail-metric { align-items: flex-start; flex-direction: column; gap: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .button, .button-light, .solution-detail, .dashboard-card, .floating-note {
+    transition: none;
+  }
+  .button-primary:hover, .button-light:hover, .solution-detail:hover {
+    transform: none;
+  }
 }
 </style>
