@@ -26,16 +26,17 @@
     ]
   })
   const priorities = ['All priorities', 'High', 'Normal', 'Low']
-  const canCreateAnnouncement = computed(() => !auth.isAdmin
+  const canCreateAnnouncements = computed(() => !auth.isAdmin
     && auth.profile.role === 'employee'
     && auth.canAccessEmployeeWorkspace)
-  const canPinAnnouncements = computed(() => !auth.isAdmin && auth.profile.role === 'manager')
+  const canPinAnnouncements = computed(() => !auth.isAdmin
+    && auth.profile.role === 'manager'
+    && auth.canAccessEmployeeWorkspace)
 
   onMounted(async () => {
-    if (auth.isAdmin) {
-      const error = await workspace.loadAnnouncements()
-      if (error) announcementLoadError.value = `Could not load announcements: ${error}`
-    }
+    if (!auth.isAdmin) return
+    const error = await workspace.loadAnnouncements()
+    if (error) announcementLoadError.value = `Could not load announcements: ${error}`
   })
 
   function formatDate (date: string) {
@@ -47,7 +48,7 @@
   <main>
     <header class="page-heading">
       <div><p class="eyebrow">COMPANY-WIDE UPDATES</p><h1>Announcements</h1><p>Company news and important updates, all in one place.</p></div>
-      <router-link v-if="canCreateAnnouncement" class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
+      <router-link v-if="canCreateAnnouncements" class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
     </header>
 
     <div class="toolbar">
@@ -67,7 +68,7 @@
         <div class="announcement-meta">
           <span v-if="item.pinned" class="pinned-label"><v-icon icon="mdi-pin" size="14" /> PINNED</span>
           <span class="priority-label" :class="item.priority.toLowerCase()">{{ item.priority }} priority</span>
-          <button v-if="canPinAnnouncements" :aria-label="item.pinned ? 'Unpin announcement' : 'Pin announcement'" class="icon-action" @click="workspace.togglePinned(item.id)"><v-icon :icon="item.pinned ? 'mdi-pin' : 'mdi-pin-outline'" size="18" /></button>
+          <button v-if="canPinAnnouncements" :aria-label="item.pinned ? 'Unpin announcement' : 'Pin announcement'" class="icon-action" type="button" @click="workspace.togglePinned(item.id)"><v-icon :icon="item.pinned ? 'mdi-pin' : 'mdi-pin-outline'" size="18" /></button>
         </div>
 
         <button class="announcement-title" @click="selected = item">{{ item.title }}</button>

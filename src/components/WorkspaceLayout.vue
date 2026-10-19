@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { onMounted, onUnmounted } from 'vue'
+  import { onMounted, onUnmounted, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import GlobalSearch from '@/components/GlobalSearch.vue'
   import { useAuthStore } from '@/stores/auth'
@@ -22,9 +22,14 @@
 
   async function logout () {
     if (await auth.logout()) {
-      router.push('/login')
+      workspace.clearWorkspace()
+      await router.replace('/login')
     }
   }
+
+  watch(() => auth.isAuthenticated, authenticated => {
+    if (!authenticated) workspace.clearWorkspace()
+  })
 
   onMounted(() => {
     void workspace.load()

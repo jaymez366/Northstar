@@ -435,16 +435,46 @@
               <h3>Current profile</h3>
 
               <dl>
-                <div><dt>Email</dt><dd>{{ selectedEmployee.current_email || '—' }}</dd></div>
-                <div><dt>Phone</dt><dd>{{ selectedEmployee.current_phone_number || '—' }}</dd></div>
-                <div><dt>Department</dt><dd>{{ selectedEmployee.current_department || '—' }}</dd></div>
-                <div><dt>Job title</dt><dd>{{ selectedEmployee.current_job_title || '—' }}</dd></div>
-                <div><dt>Employee ID</dt><dd>{{ selectedEmployee.current_employee_id || '—' }}</dd></div>
-                <div><dt>Employment type</dt><dd>{{ selectedEmployee.current_employment_type || '—' }}</dd></div>
-                <div><dt>Office location</dt><dd>{{ selectedEmployee.current_office_location || '—' }}</dd></div>
-                <div><dt>Date of joining</dt><dd>{{ selectedEmployee.current_date_of_joining || '—' }}</dd></div>
-                <div><dt>Manager</dt><dd>{{ selectedEmployee.current_manager_name || '—' }}</dd></div>
-                <div class="detail-bio"><dt>Bio</dt><dd>{{ selectedEmployee.current_bio || '—' }}</dd></div>
+                <div>
+                  <dt>Email</dt>
+                  <dd>{{ selectedEmployee.current_email || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Phone</dt>
+                  <dd>{{ selectedEmployee.current_phone_number || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Department</dt>
+                  <dd>{{ selectedEmployee.current_department || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Job title</dt>
+                  <dd>{{ selectedEmployee.current_job_title || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Employee ID</dt>
+                  <dd>{{ selectedEmployee.current_employee_id || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Employment type</dt>
+                  <dd>{{ selectedEmployee.current_employment_type || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Office location</dt>
+                  <dd>{{ selectedEmployee.current_office_location || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Date of joining</dt>
+                  <dd>{{ selectedEmployee.current_date_of_joining || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Manager</dt>
+                  <dd>{{ selectedEmployee.current_manager_name || '—' }}</dd>
+                </div>
+                <div class="detail-bio">
+                  <dt>Bio</dt>
+                  <dd>{{ selectedEmployee.current_bio || '—' }}</dd>
+                </div>
               </dl>
             </section>
           </div>

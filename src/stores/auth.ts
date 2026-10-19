@@ -87,6 +87,7 @@ export const useAuthStore = defineStore('auth', () => {
   const userEmail = ref('')
   const userFirstName = ref('')
   const isPasswordRecovery = ref(false)
+  const registrationSubmissionSucceeded = ref(false)
   const profile = ref<UserProfile>(emptyProfile())
   const profileLoaded = ref(false)
   const employeeRegistrationComplete = computed(() => profile.value.registrationCompleted
@@ -571,6 +572,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (userId.value && userId.value !== user.id) {
       profile.value = emptyProfile()
       profileLoaded.value = false
+      registrationSubmissionSucceeded.value = false
     }
     userId.value = user.id
     userEmail.value = user.email ?? ''
@@ -596,6 +598,7 @@ export const useAuthStore = defineStore('auth', () => {
     profileLoaded.value = false
     profile.value = emptyProfile()
     isPasswordRecovery.value = false
+    registrationSubmissionSucceeded.value = false
   }
 
   function isDesignatedAdministrator () {
@@ -614,6 +617,7 @@ export const useAuthStore = defineStore('auth', () => {
     emailVerified,
     isAdmin,
     isPasswordRecovery,
+    registrationSubmissionSucceeded,
     userId,
     userEmail,
     userFirstName,

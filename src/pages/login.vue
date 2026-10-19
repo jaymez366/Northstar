@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, onMounted, ref } from 'vue'
+  import { computed, nextTick, onMounted, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
 
@@ -10,6 +10,8 @@
   const fullName = ref('')
   const email = ref('')
   const password = ref('')
+  const passwordVisible = ref(false)
+  const passwordInput = ref<HTMLInputElement | null>(null)
   const confirmPassword = ref('')
   const errorMessage = ref('')
   const noticeMessage = ref('')
@@ -139,6 +141,12 @@
     noticeMessage.value = ''
   }
 
+  async function togglePasswordVisibility () {
+    passwordVisible.value = !passwordVisible.value
+    await nextTick()
+    passwordInput.value?.focus()
+  }
+
   function toggleMode () {
     isSignup.value = !isSignup.value
     errorMessage.value = ''
@@ -207,14 +215,27 @@
 
           <label for="password">Password</label>
 
-          <input
-            id="password"
-            v-model="password"
-            autocomplete="current-password"
-            placeholder="Enter your password"
-            required
-            type="password"
-          >
+          <div class="password-field">
+            <input
+              id="password"
+              ref="passwordInput"
+              v-model="password"
+              :autocomplete="isSignup ? 'new-password' : 'current-password'"
+              placeholder="Enter your password"
+              required
+              :type="passwordVisible ? 'text' : 'password'"
+            >
+            <button
+              :aria-label="passwordVisible ? 'Hide password' : 'Show password'"
+              :aria-pressed="passwordVisible"
+              class="password-visibility-toggle"
+              type="button"
+              @mousedown.prevent
+              @click="togglePasswordVisibility"
+            >
+              <v-icon :icon="passwordVisible ? 'mdi-eye-off' : 'mdi-eye'" size="21" />
+            </button>
+          </div>
 
           <template v-if="isSignup">
             <label for="confirm-password">Confirm password</label>
@@ -486,6 +507,44 @@ input::placeholder {
 input:focus {
   outline: 2px solid #d4ec66;
   outline-offset: 2px;
+}
+
+.password-field {
+  position: relative;
+  width: 100%;
+}
+
+.password-field input {
+  padding-right: 50px;
+}
+
+.password-visibility-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  width: 46px;
+  height: 100%;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #d4ec66;
+  cursor: pointer;
+  opacity: 1;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.password-visibility-toggle:hover {
+  background: #31564a;
+  color: #e5f38b;
+}
+
+.password-visibility-toggle:focus-visible {
+  z-index: 1;
+  border-radius: 2px;
+  outline: 2px solid #e5f38b;
+  outline-offset: -4px;
 }
 
 .error-message {

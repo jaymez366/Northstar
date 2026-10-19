@@ -1,24 +1,49 @@
 <script setup lang="ts">
   import { onMounted, onUnmounted, ref } from 'vue'
-  import { useRoute, useRouter } from 'vue-router'
+  import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
   const auth = useAuthStore()
   const router = useRouter()
-  const route = useRoute()
   const checking = ref(false)
   const error = ref('')
   const approvedNotice = ref(false)
+  const showSubmissionSuccess = ref(false)
+  const viewingSubmittedDetails = ref(false)
+  const submittedPhotoUrl = ref('')
+  const photoUnavailable = ref(false)
   let statusRefreshTimer: number | undefined
 
   onMounted(() => {
-    if (route.query.submitted === 'true') {
-      approvedNotice.value = false
-    }
+    showSubmissionSuccess.value = auth.registrationSubmissionSucceeded
+    auth.registrationSubmissionSucceeded = false
+    void loadSavedRegistrationDetails()
     statusRefreshTimer = window.setInterval(() => {
       void checkStatus()
     }, 30_000)
   })
+
+  async function loadSavedRegistrationDetails () {
+    await auth.refreshProfile()
+    if (!isSupabaseConfigured || !supabase || !auth.userId) return
+
+    const { data: photoPath, error: photoPathError } = await supabase.rpc('northstar_get_my_registration_photo')
+    if (photoPathError) {
+      console.error('Could not load the saved registration photo path', photoPathError)
+      return
+    }
+    if (typeof photoPath !== 'string') return
+
+    const { data, error: signedUrlError } = await supabase.storage
+      .from('profile-avatars')
+      .createSignedUrl(photoPath, 3600)
+    if (signedUrlError) {
+      console.error('Could not create a signed URL for the saved registration photo', signedUrlError)
+      return
+    }
+    submittedPhotoUrl.value = data.signedUrl
+  }
 
   onUnmounted(() => {
     if (statusRefreshTimer !== undefined) {
@@ -59,7 +84,7 @@
 
 <template>
   <main class="approval-page">
-    <section class="approval-card surface-card">
+    <section v-if="!viewingSubmittedDetails" class="approval-card surface-card">
       <span class="approval-icon"><v-icon icon="mdi-account-clock-outline" size="25" /></span>
       <p class="eyebrow">REGISTRATION RECEIVED</p>
       <h1>You're almost<br><em>in the Northstar.</em></h1>
@@ -69,7 +94,7 @@
           Congratulations! Your employee registration has been approved. You can now access Northstar.
         </template>
 
-        <template v-else-if="route.query.submitted === 'true'">
+        <template v-else-if="showSubmissionSuccess">
           Registration submitted successfully! Your profile is awaiting administrator review.
         </template>
 
@@ -111,6 +136,50 @@
           Update and resubmit registration
         </router-link>
 
+        <button
+          v-if="auth.profile.registrationCompleted"
+          class="secondary-action"
+          type="button"
+          @click="viewingSubmittedDetails = true"
+        >
+          View Submitted Details
+        </button>
+
+        <button class="secondary-action" type="button" @click="signOut">Sign out</button>
+      </div>
+    </section>
+
+    <section v-else class="approval-card details-card surface-card">
+      <p class="eyebrow">EMPLOYEE REGISTRATION</p>
+      <h1>Submitted<br><em>details</em></h1>
+      <p class="approval-copy">These are the registration details currently saved to your Northstar profile.</p>
+
+      <div class="submitted-details">
+        <div v-if="(submittedPhotoUrl || auth.profile.photoUrl) && !photoUnavailable" class="submitted-photo-wrap">
+          <img :src="submittedPhotoUrl || auth.profile.photoUrl" alt="Your saved registration photo" @error="photoUnavailable = true">
+        </div>
+        <p v-else class="submitted-photo-placeholder"><v-icon icon="mdi-account-circle-outline" size="30" />No profile photo saved</p>
+
+        <dl class="submitted-detail-list">
+          <div><dt>Name</dt><dd>{{ auth.profile.firstName }} {{ auth.profile.lastName }}</dd></div>
+          <div><dt>Email address</dt><dd>{{ auth.userEmail }}</dd></div>
+          <div><dt>Phone number</dt><dd>{{ auth.profile.phone }}</dd></div>
+          <div><dt>Department</dt><dd>{{ auth.profile.department }}</dd></div>
+          <div><dt>Job title</dt><dd>{{ auth.profile.jobTitle }}</dd></div>
+          <div v-if="auth.profile.employeeId"><dt>Employee ID</dt><dd>{{ auth.profile.employeeId }}</dd></div>
+          <div v-if="auth.profile.employmentType"><dt>Employment type</dt><dd>{{ auth.profile.employmentType }}</dd></div>
+          <div v-if="auth.profile.officeLocation"><dt>Office location</dt><dd>{{ auth.profile.officeLocation }}</dd></div>
+          <div v-if="auth.profile.dateOfJoining"><dt>Date of joining</dt><dd>{{ auth.profile.dateOfJoining }}</dd></div>
+          <div v-if="auth.profile.managerName"><dt>Manager</dt><dd>{{ auth.profile.managerName }}</dd></div>
+          <div v-if="auth.profile.bio"><dt>Introduction</dt><dd>{{ auth.profile.bio }}</dd></div>
+        </dl>
+      </div>
+
+      <p v-if="error" class="approval-error" role="alert">{{ error }}</p>
+      <div class="approval-actions">
+        <button class="primary-action" type="button" @click="viewingSubmittedDetails = false">
+          Back to Pending Approval
+        </button>
         <button class="secondary-action" type="button" @click="signOut">Sign out</button>
       </div>
     </section>
@@ -120,6 +189,7 @@
 <style scoped>
 .approval-page { display: grid; min-height: 62vh; place-items: center; padding: 20px; }
 .approval-card { width: min(100%, 550px); padding: clamp(24px, 5vw, 40px); }
+.details-card { width: min(100%, 720px); }
 .approval-icon { display: grid; width: 48px; height: 48px; place-items: center; background: #f8e8df; color: #b8583e; }
 .eyebrow { margin: 23px 0 10px; color: #758b7c; font: 9px "DM Mono", monospace; letter-spacing: 1.5px; }
 h1 { margin: 0; color: #18352d; font-size: clamp(34px, 6vw, 48px); line-height: 1.03; letter-spacing: -2px; }
@@ -134,4 +204,13 @@ h1 em { color: #e16b4c; font-style: normal; }
 .approval-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 23px; }
 .approval-actions button { min-height: 39px; font-size: 9px; }
 .resubmit-action { display: inline-flex; min-height: 39px; align-items: center; text-decoration: none; }
+.submitted-details { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 20px; }
+.submitted-photo-wrap { display: grid; min-height: 150px; place-items: center; border: 1px solid #e3e9dc; background: #f8f9f6; }
+.submitted-photo-wrap img { display: block; width: 100%; height: 150px; object-fit: contain; }
+.submitted-photo-placeholder { display: flex; min-height: 70px; align-items: center; gap: 8px; color: #829187; font-size: 10px; }
+.submitted-detail-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 16px; margin: 0; }
+.submitted-detail-list > div { min-width: 0; }
+.submitted-detail-list dt { color: #829187; font-size: 9px; }
+.submitted-detail-list dd { margin: 3px 0 0; color: #18352d; font-size: 11px; overflow-wrap: anywhere; }
+@media (max-width: 580px) { .submitted-details { grid-template-columns: 1fr; } .submitted-photo-wrap { width: min(100%, 170px); } .submitted-detail-list { grid-template-columns: 1fr; } }
 </style>

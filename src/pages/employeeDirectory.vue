@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 const workspace = useWorkspaceStore()
 const route = useRoute()
 const search = ref('')
-const selectedEmployeeId = typeof route.query.employee === 'string' ? route.query.employee : ''
+const selectedEmployeeId = typeof route.query.employee === 'string' && isUuid(route.query.employee) ? route.query.employee : ''
 const department = ref(typeof route.query.department === 'string' ? route.query.department : 'All departments')
 const departments = computed(() => ['All departments', ...new Set(workspace.employees.map(employee => employee.department))])
 const filteredEmployees = computed(() => workspace.employees.filter(employee => {
@@ -15,6 +15,10 @@ const filteredEmployees = computed(() => workspace.employees.filter(employee => 
     && (department.value === 'All departments' || employee.department === department.value)
     && text.includes(search.value.trim().toLowerCase())
 }))
+
+function isUuid (value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
 </script>
 
 <template>

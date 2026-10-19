@@ -71,7 +71,8 @@
           return
         }
       }
-      await router.replace({ path: '/pending-approval', query: { submitted: 'true' } })
+      auth.registrationSubmissionSucceeded = true
+      await router.replace('/pending-approval')
     } catch (submitError) {
       error.value = auth.errorMessage || 'Your registration could not be saved. Please try again.'
       console.error('Employee registration submission failed', submitError)
