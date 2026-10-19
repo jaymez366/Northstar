@@ -2,28 +2,38 @@
    throughout active page and component styles. */
 :root {
   color-scheme: light;
-  --ns-page: #f3f5ef;
+  --ns-page: #f3f6fa;
   --ns-sidebar: #ffffff;
   --ns-surface: #ffffff;
   --ns-surface-raised: #f8fafc;
-  --ns-text-primary: #18352d;
-  --ns-text-secondary: #64748b;
-  --ns-border: #dce4d8;
+  --ns-text-primary: #172338;
+  --ns-text-secondary: #586a82;
+  --ns-border: #dfe6f0;
   --ns-primary: #2563eb;
   --ns-accent: #0f766e;
+  --ns-sidebar-text: #34445a;
+  --ns-sidebar-muted: #708097;
+  --ns-sidebar-active: #eaf1ff;
+  --ns-sidebar-active-text: #1d4ed8;
+  --ns-scrollbar-thumb: #c4cfdd;
 }
 
 html[data-northstar-theme='dark'] {
   color-scheme: dark;
   --ns-page: #111827;
-  --ns-sidebar: #172033;
-  --ns-surface: #1e293b;
+  --ns-sidebar: #151e2e;
+  --ns-surface: #1c2738;
   --ns-surface-raised: #243247;
-  --ns-text-primary: #e5eaf3;
-  --ns-text-secondary: #a7b3c7;
-  --ns-border: #334155;
-  --ns-primary: #60a5fa;
-  --ns-accent: #5eead4;
+  --ns-text-primary: #e6edf7;
+  --ns-text-secondary: #a9b7ca;
+  --ns-border: #344256;
+  --ns-primary: #75a7ff;
+  --ns-accent: #55d6be;
+  --ns-sidebar-text: #c5d0df;
+  --ns-sidebar-muted: #91a0b5;
+  --ns-sidebar-active: #243247;
+  --ns-sidebar-active-text: #a8c5ff;
+  --ns-scrollbar-thumb: #43536a;
 }
 
 html[data-northstar-theme='dark'] body,
@@ -41,6 +51,63 @@ html[data-northstar-theme='dark'] select {
 
 html[data-northstar-theme='dark'] :focus-visible {
   outline-color: var(--ns-primary);
+}
+
+.side-nav {
+  scrollbar-color: var(--ns-scrollbar-thumb) transparent;
+}
+
+.side-nav::-webkit-scrollbar { width: 8px; }
+.side-nav::-webkit-scrollbar-track { background: transparent; }
+.side-nav::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--ns-scrollbar-thumb);
+  background-clip: content-box;
+}
+.side-nav::-webkit-scrollbar-thumb:hover { background-color: var(--ns-text-secondary); }
+
+.sidebar {
+  background: var(--ns-sidebar) !important;
+  color: var(--ns-sidebar-text) !important;
+}
+html[data-northstar-theme] .sidebar { background: var(--ns-sidebar) !important; }
+.sidebar .brand { color: var(--ns-text-primary); }
+.sidebar .brand-mark span { background: var(--ns-primary); }
+.sidebar .brand-dot { color: var(--ns-primary); }
+.sidebar .nav-label { color: var(--ns-sidebar-muted); }
+.sidebar .side-nav a,
+.sidebar .sidebar-bottom a,
+.sidebar .logout-button { color: var(--ns-sidebar-text); }
+.sidebar .side-nav a:hover,
+.sidebar .sidebar-bottom a:hover,
+.sidebar .logout-button:hover { background: var(--ns-sidebar-active); color: var(--ns-sidebar-active-text); }
+.sidebar .side-nav a.active,
+.sidebar .sidebar-bottom a.active { background: var(--ns-sidebar-active); color: var(--ns-sidebar-active-text); }
+.sidebar .sidebar-bottom { border-top-color: var(--ns-border); }
+
+.surface-card,
+.admin-content .v-card,
+.workspace-main .v-card {
+  border-color: var(--ns-border);
+  background-color: var(--ns-surface);
+  color: var(--ns-text-primary);
+}
+
+.field-control,
+input:not([type='checkbox']):not([type='radio']),
+textarea,
+select {
+  border-color: var(--ns-border);
+  background-color: var(--ns-surface);
+  color: var(--ns-text-primary);
+}
+
+html[data-northstar-theme='dark'] .field-control,
+html[data-northstar-theme='dark'] input:not([type='checkbox']):not([type='radio']),
+html[data-northstar-theme='dark'] textarea,
+html[data-northstar-theme='dark'] select {
+  background-color: var(--ns-surface-raised);
 }
 
 html[data-northstar-theme] *,
@@ -480,4 +547,27 @@ html[data-northstar-theme='dark'] {
   --ns-shadow-dce7d5: color-mix(in srgb, #dce7d5 18%, #0B1220);
   --ns-shadow-102d261c: color-mix(in srgb, #102d261c 18%, #0B1220);
   --ns-shadow-d4ec66: color-mix(in srgb, #d4ec66 18%, #0B1220);
+}
+
+/* Route-level styles share these common semantic colors in both themes. */
+:root,
+html[data-northstar-theme='dark'] {
+  --ns-bg-f3f5ef: var(--ns-page);
+  --ns-bg-fff: var(--ns-surface);
+  --ns-bg-ffffff: var(--ns-surface);
+  --ns-bg-f8f9f6: var(--ns-surface-raised);
+  --ns-bg-f9faf6ed: color-mix(in srgb, var(--ns-surface) 94%, transparent);
+  --ns-bg-18352d: var(--ns-primary);
+  --ns-bg-2563eb: var(--ns-primary);
+  --ns-text-10231d: var(--ns-text-primary);
+  --ns-text-18352d: var(--ns-text-primary);
+  --ns-text-52645a: var(--ns-text-secondary);
+  --ns-text-526c5c: var(--ns-accent);
+  --ns-text-60766a: var(--ns-text-secondary);
+  --ns-text-718178: var(--ns-text-secondary);
+  --ns-text-71897b: var(--ns-text-secondary);
+  --ns-text-829187: var(--ns-text-secondary);
+  --ns-border-18352d: var(--ns-primary);
+  --ns-border-2563eb: var(--ns-primary);
+  --ns-border-dce4d8: var(--ns-border);
 }

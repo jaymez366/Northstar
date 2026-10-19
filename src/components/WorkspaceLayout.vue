@@ -223,7 +223,7 @@ body { min-width: 320px; margin: 0; background: var(--ns-bg-f3f5ef, #f3f5ef); }
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--ns-accent) var(--ns-sidebar);
+  scrollbar-color: var(--ns-scrollbar-thumb) transparent;
   -webkit-overflow-scrolling: touch;
 }
 .sidebar-bottom { display: grid; gap: 4px; }
