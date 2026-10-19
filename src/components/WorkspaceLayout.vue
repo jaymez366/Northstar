@@ -76,29 +76,28 @@
           <span>Notifications</span>
           <span v-if="workspace.unreadNotifications" class="unread-count">{{ workspace.unreadNotifications }}</span>
         </router-link>
+        <div class="sidebar-bottom">
+          <router-link active-class="active" to="/profile">
+            <v-icon icon="mdi-account-circle-outline" size="19" />
+            <span>Profile</span>
+          </router-link>
+
+          <router-link active-class="active" to="/settings">
+            <v-icon icon="mdi-cog-outline" size="19" />
+            <span>Settings</span>
+          </router-link>
+
+          <router-link v-if="auth.isAdmin" active-class="active" to="/admin">
+            <v-icon icon="mdi-shield-account-outline" size="19" />
+            <span>Admin dashboard</span>
+          </router-link>
+
+          <button class="logout-button" type="button" @click="logout">
+            <v-icon icon="mdi-logout" size="19" />
+            <span>Sign out</span>
+          </button>
+        </div>
       </nav>
-
-      <div class="sidebar-bottom">
-        <router-link active-class="active" to="/profile">
-          <v-icon icon="mdi-account-circle-outline" size="19" />
-          <span>Profile</span>
-        </router-link>
-
-        <router-link active-class="active" to="/settings">
-          <v-icon icon="mdi-cog-outline" size="19" />
-          <span>Settings</span>
-        </router-link>
-
-        <router-link v-if="auth.isAdmin" active-class="active" to="/admin">
-          <v-icon icon="mdi-shield-account-outline" size="19" />
-          <span>Admin dashboard</span>
-        </router-link>
-
-        <button class="logout-button" type="button" @click="logout">
-          <v-icon icon="mdi-logout" size="19" />
-          <span>Sign out</span>
-        </button>
-      </div>
     </aside>
 
     <div class="workspace-column">
@@ -180,6 +179,8 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
   inset: 0 auto 0 0;
   display: flex;
   width: 232px;
+  height: 100vh;
+  height: 100dvh;
   flex-direction: column;
   overflow: hidden;
   padding: 26px 16px 18px;
@@ -188,6 +189,7 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
 }
 .brand {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   padding: 0 10px;
@@ -204,15 +206,17 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
 .brand-mark span:nth-child(3) { height: 14px; }
 .brand-dot { color: #d4ec66; }
 .nav-label {
+  flex-shrink: 0;
   margin: 48px 10px 12px;
   color: #82998b;
   font: 9px "DM Mono", monospace;
   letter-spacing: 1.5px;
 }
 .side-nav {
-  display: grid;
+  display: flex;
   min-height: 0;
   flex: 1 1 auto;
+  flex-direction: column;
   gap: 4px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -325,8 +329,9 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
 @media (max-width: 680px) {
   .sidebar { position: sticky; inset: 0 0 auto; width: 100%; height: auto; max-height: 100vh; max-height: 100dvh; padding: 12px 14px 8px; }
   .sidebar .brand { padding: 0 4px 10px; }
-  .nav-label, .sidebar-bottom { display: none; }
-  .side-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); }
+  .nav-label { display: none; }
+  .side-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); }
+  .sidebar-bottom { display: contents; }
   .side-nav a { min-height: 34px; gap: 7px; padding: 0 8px; font-size: 9px; }
   .side-nav a.active { box-shadow: inset 2px 0 #d4ec66; }
   .side-nav a .v-icon { display: none; }
