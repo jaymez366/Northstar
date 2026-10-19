@@ -34,6 +34,9 @@ html[data-northstar-theme='dark'] {
   --ns-sidebar-active: #243247;
   --ns-sidebar-active-text: #a8c5ff;
   --ns-scrollbar-thumb: #43536a;
+  --ns-surface-hover: #2b394d;
+  --ns-border-strong: #465a74;
+  --ns-shadow-soft: 0 12px 30px rgb(4 10 20 / 22%);
 }
 
 html[data-northstar-theme='dark'] body,
@@ -108,6 +111,83 @@ html[data-northstar-theme='dark'] input:not([type='checkbox']):not([type='radio'
 html[data-northstar-theme='dark'] textarea,
 html[data-northstar-theme='dark'] select {
   background-color: var(--ns-surface-raised);
+}
+
+/* Dark surfaces keep a clear hierarchy while preserving the approved light palette. */
+html[data-northstar-theme='dark'] .workspace-shell,
+html[data-northstar-theme='dark'] .admin-shell {
+  color: var(--ns-text-primary);
+}
+
+html[data-northstar-theme='dark'] .workspace-shell .surface-card,
+html[data-northstar-theme='dark'] .admin-shell .surface-card,
+html[data-northstar-theme='dark'] .workspace-shell .v-card,
+html[data-northstar-theme='dark'] .admin-shell .v-card {
+  border-color: var(--ns-border);
+  background-color: var(--ns-surface);
+  color: var(--ns-text-primary);
+  box-shadow: var(--ns-shadow-soft);
+}
+
+html[data-northstar-theme='dark'] .workspace-shell input:not([type='checkbox']):not([type='radio']),
+html[data-northstar-theme='dark'] .workspace-shell textarea,
+html[data-northstar-theme='dark'] .workspace-shell select,
+html[data-northstar-theme='dark'] .admin-shell input:not([type='checkbox']):not([type='radio']),
+html[data-northstar-theme='dark'] .admin-shell textarea,
+html[data-northstar-theme='dark'] .admin-shell select {
+  border-color: var(--ns-border);
+  background-color: var(--ns-surface-raised);
+  color: var(--ns-text-primary);
+}
+
+html[data-northstar-theme='dark'] .workspace-shell input::placeholder,
+html[data-northstar-theme='dark'] .workspace-shell textarea::placeholder,
+html[data-northstar-theme='dark'] .admin-shell input::placeholder,
+html[data-northstar-theme='dark'] .admin-shell textarea::placeholder {
+  color: var(--ns-text-secondary);
+  opacity: .82;
+}
+
+html[data-northstar-theme='dark'] .workspace-shell button:not(:disabled):hover,
+html[data-northstar-theme='dark'] .admin-shell button:not(:disabled):hover {
+  border-color: var(--ns-border-strong);
+}
+
+html[data-northstar-theme='dark'] .workspace-shell .secondary-action:hover,
+html[data-northstar-theme='dark'] .workspace-shell .details-button:hover,
+html[data-northstar-theme='dark'] .admin-shell .secondary-action:hover,
+html[data-northstar-theme='dark'] .admin-shell .details-button:hover {
+  background-color: var(--ns-surface-hover);
+  color: var(--ns-text-primary);
+}
+
+html[data-northstar-theme='dark'] .workspace-shell .data-table th,
+html[data-northstar-theme='dark'] .admin-shell .data-table th {
+  color: var(--ns-text-secondary);
+}
+
+html[data-northstar-theme='dark'] .workspace-shell .data-table td,
+html[data-northstar-theme='dark'] .admin-shell .data-table td {
+  border-color: var(--ns-border);
+  color: var(--ns-text-primary);
+}
+
+html[data-northstar-theme='dark'] .workspace-shell .data-table tbody tr:hover,
+html[data-northstar-theme='dark'] .admin-shell .data-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--ns-surface-hover) 62%, transparent);
+}
+
+html[data-northstar-theme='dark'] .v-overlay__content > .v-card,
+html[data-northstar-theme='dark'] .v-overlay__content > .v-list {
+  border: 1px solid var(--ns-border);
+  background-color: var(--ns-surface);
+  color: var(--ns-text-primary);
+  box-shadow: var(--ns-shadow-soft);
+}
+
+html[data-northstar-theme='dark'] .v-list-item:hover,
+html[data-northstar-theme='dark'] .v-list-item--active {
+  background-color: var(--ns-surface-hover);
 }
 
 html[data-northstar-theme] *,
