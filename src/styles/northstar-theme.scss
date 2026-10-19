@@ -99,6 +99,22 @@ html[data-northstar-theme] .sidebar { background: var(--ns-sidebar) !important; 
 .sidebar .sidebar-bottom a.active { background: var(--ns-sidebar-active); color: var(--ns-sidebar-active-text); }
 .sidebar .sidebar-bottom { border-top-color: var(--ns-border); }
 
+/* Shared Northstar three-bar wordmark colors for page-local logo instances. */
+:root {
+  --ns-logo-navy: #163b65;
+  --ns-logo-blue: #2563eb;
+  --ns-logo-light-blue: #93c5fd;
+}
+html[data-northstar-theme='dark'] {
+  --ns-logo-navy: #c6d9fb;
+  --ns-logo-blue: #8ab4ff;
+  --ns-logo-light-blue: #75a7ff;
+}
+html .brand-mark.brand-mark span:nth-child(1) { background: var(--ns-logo-navy); }
+html .brand-mark.brand-mark span:nth-child(2) { background: var(--ns-logo-blue); }
+html .brand-mark.brand-mark span:nth-child(3) { background: var(--ns-logo-light-blue); }
+html .brand-dot.brand-dot { color: var(--ns-logo-blue); }
+
 .surface-card,
 .admin-content .v-card,
 .workspace-main .v-card {
