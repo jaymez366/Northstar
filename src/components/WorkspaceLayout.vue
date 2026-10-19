@@ -181,6 +181,7 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
   display: flex;
   width: 232px;
   flex-direction: column;
+  overflow: hidden;
   padding: 26px 16px 18px;
   background: #102d26;
   color: #f5f6ee;
@@ -208,7 +209,18 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
   font: 9px "DM Mono", monospace;
   letter-spacing: 1.5px;
 }
-.side-nav, .sidebar-bottom { display: grid; gap: 4px; }
+.side-nav {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #496858 #102d26;
+  -webkit-overflow-scrolling: touch;
+}
+.sidebar-bottom { display: grid; gap: 4px; }
 .side-nav a, .sidebar-bottom a, .logout-button {
   display: flex;
   min-height: 41px;
@@ -311,10 +323,10 @@ body { min-width: 320px; margin: 0; background: #f3f5ef; }
   .workspace-main { padding: 25px 22px 38px; }
 }
 @media (max-width: 680px) {
-  .sidebar { position: sticky; inset: 0 0 auto; width: 100%; height: auto; padding: 12px 14px 8px; }
+  .sidebar { position: sticky; inset: 0 0 auto; width: 100%; height: auto; max-height: 100vh; max-height: 100dvh; padding: 12px 14px 8px; }
   .sidebar .brand { padding: 0 4px 10px; }
   .nav-label, .sidebar-bottom { display: none; }
-  .side-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
+  .side-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); }
   .side-nav a { min-height: 34px; gap: 7px; padding: 0 8px; font-size: 9px; }
   .side-nav a.active { box-shadow: inset 2px 0 #d4ec66; }
   .side-nav a .v-icon { display: none; }
