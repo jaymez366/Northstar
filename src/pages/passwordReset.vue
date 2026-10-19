@@ -158,27 +158,27 @@
 </template>
 
 <style scoped>
-.reset-page { display: grid; min-height: 100vh; grid-template-columns: 1fr minmax(320px, 480px) 1fr; align-items: start; gap: 28px; padding: 28px 5vw; background: #f3f5ef; color: #18352d; font-family: "Manrope", sans-serif; }
-.brand { display: inline-flex; align-items: center; gap: 10px; color: #18352d; text-decoration: none; font-size: 20px; font-weight: 800; letter-spacing: -1px; }
+.reset-page { display: grid; min-height: 100vh; grid-template-columns: 1fr minmax(320px, 480px) 1fr; align-items: start; gap: 28px; padding: 28px 5vw; background: var(--ns-bg-f3f5ef, #f3f5ef); color: var(--ns-text-18352d, #18352d); font-family: "Manrope", sans-serif; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ns-text-18352d, #18352d); text-decoration: none; font-size: 20px; font-weight: 800; letter-spacing: -1px; }
 .brand-mark { display: flex; align-items: end; gap: 2px; height: 20px; }
-.brand-mark span { display: block; width: 5px; background: #e16b4c; }
+.brand-mark span { display: block; width: 5px; background: var(--ns-bg-e16b4c, #e16b4c); }
 .brand-mark span:nth-child(1) { height: 11px; }
 .brand-mark span:nth-child(2) { height: 17px; }
 .brand-mark span:nth-child(3) { height: 14px; }
-.brand-dot, em { color: #e16b4c; font-style: normal; }
-.reset-card { grid-column: 2; margin-top: 15vh; padding: 36px; background: #18352d; color: #f3f5ef; box-shadow: 12px 14px 0 #dce7d5; }
-.section-overline { color: #aabcae; font: 10px "DM Mono", monospace; letter-spacing: 1.5px; }
+.brand-dot, em { color: var(--ns-text-e16b4c, #e16b4c); font-style: normal; }
+.reset-card { grid-column: 2; margin-top: 15vh; padding: 36px; background: var(--ns-bg-18352d, #18352d); color: var(--ns-text-f3f5ef, #f3f5ef); box-shadow: 12px 14px 0 var(--ns-shadow-dce7d5, #dce7d5); }
+.section-overline { color: var(--ns-text-aabcae, #aabcae); font: 10px "DM Mono", monospace; letter-spacing: 1.5px; }
 .reset-card h1 { margin: 20px 0 12px; font-size: 42px; line-height: 1; letter-spacing: -2px; }
-.reset-copy { margin: 0 0 24px; color: #bdcbbf; font-size: 11px; line-height: 1.7; }
+.reset-copy { margin: 0 0 24px; color: var(--ns-text-bdcbbf, #bdcbbf); font-size: 11px; line-height: 1.7; }
 .reset-card form { display: grid; gap: 10px; }
-label { margin-top: 8px; color: #bdcbbf; font-size: 10px; font-weight: 700; }
-input { width: 100%; border: 1px solid #557064; padding: 13px; background: #24473d; color: #f3f5ef; font: 12px "Manrope", sans-serif; }
-input:focus { outline: 2px solid #d4ec66; outline-offset: 2px; }
-.error-message { color: #ffab91; font-size: 10px; }
-.submit-button { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; border: 0; padding: 14px 16px; background: #d4ec66; color: #18352d; cursor: pointer; font: 700 11px "Manrope", sans-serif; }
+label { margin-top: 8px; color: var(--ns-text-bdcbbf, #bdcbbf); font-size: 10px; font-weight: 700; }
+input { width: 100%; border: 1px solid var(--ns-border-557064, #557064); padding: 13px; background: var(--ns-bg-24473d, #24473d); color: var(--ns-text-f3f5ef, #f3f5ef); font: 12px "Manrope", sans-serif; }
+input:focus { outline: 2px solid var(--ns-border-d4ec66, #d4ec66); outline-offset: 2px; }
+.error-message { color: var(--ns-text-ffab91, #ffab91); font-size: 10px; }
+.submit-button { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; border: 0; padding: 14px 16px; background: var(--ns-bg-d4ec66, #d4ec66); color: var(--ns-text-18352d, #18352d); cursor: pointer; font: 700 11px "Manrope", sans-serif; }
 .submit-button:disabled { cursor: wait; opacity: .7; }
-.error-message { color: #ffab91; font-size: 10px; line-height: 1.6; }
-.success-message { color: #d4ec66; font-size: 10px; line-height: 1.6; }
-.return-link { display: block; margin-top: 20px; color: #d4ec66; text-align: center; text-decoration: none; font-size: 10px; }
+.error-message { color: var(--ns-text-ffab91, #ffab91); font-size: 10px; line-height: 1.6; }
+.success-message { color: var(--ns-text-d4ec66, #d4ec66); font-size: 10px; line-height: 1.6; }
+.return-link { display: block; margin-top: 20px; color: var(--ns-text-d4ec66, #d4ec66); text-align: center; text-decoration: none; font-size: 10px; }
 @media (max-width: 760px) { .reset-page { display: block; padding: 20px; } .reset-card { margin: 12vh auto 0; padding: 28px 22px; } }
 </style>

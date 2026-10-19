@@ -15,11 +15,18 @@
 </template>
 
 <script lang="ts" setup>
+  import { watch } from 'vue'
   import { useRoute } from 'vue-router'
   import AdminLayout from '@/components/AdminLayout.vue'
   import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
   import { useAuthStore } from '@/stores/auth'
+  import { useThemeStore } from '@/stores/theme'
 
   const route = useRoute()
   const auth = useAuthStore()
+  const appearance = useThemeStore()
+
+  watch(() => auth.userId, userId => {
+    void appearance.loadForUser(userId)
+  }, { immediate: true })
 </script>

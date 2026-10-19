@@ -51,17 +51,17 @@
 </template>
 
 <style scoped>
-.resource-count { margin-left: auto; color: #829187; font-size: 10px; }
-.download-error { color: #a34c39; font-size: 10px; }
+.resource-count { margin-left: auto; color: var(--ns-text-829187, #829187); font-size: 10px; }
+.download-error { color: var(--ns-text-a34c39, #a34c39); font-size: 10px; }
 .resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
 .resource-card { display: flex; min-height: 255px; flex-direction: column; padding: 17px; }
 .resource-top { display: flex; align-items: center; justify-content: space-between; }
-.resource-icon { display: grid; width: 40px; height: 40px; place-items: center; background: #eaf3bd; color: #526738; }
-.format-label { color: #829187; font: 8px "DM Mono", monospace; }
-.category-label { margin-top: 14px; color: #71897b; font: 8px "DM Mono", monospace; text-transform: uppercase; letter-spacing: 1px; }
-.resource-card h2 { margin: 7px 0 6px; color: #18352d; font-size: 14px; }
-.resource-card > p { flex: 1; margin: 0; color: #718178; font-size: 10px; line-height: 1.7; }
-.updated-label { margin-top: 12px; color: #96a198; font-size: 8px; }
+.resource-icon { display: grid; width: 40px; height: 40px; place-items: center; background: var(--ns-bg-eaf3bd, #eaf3bd); color: var(--ns-text-526738, #526738); }
+.format-label { color: var(--ns-text-829187, #829187); font: 8px "DM Mono", monospace; }
+.category-label { margin-top: 14px; color: var(--ns-text-71897b, #71897b); font: 8px "DM Mono", monospace; text-transform: uppercase; letter-spacing: 1px; }
+.resource-card h2 { margin: 7px 0 6px; color: var(--ns-text-18352d, #18352d); font-size: 14px; }
+.resource-card > p { flex: 1; margin: 0; color: var(--ns-text-718178, #718178); font-size: 10px; line-height: 1.7; }
+.updated-label { margin-top: 12px; color: var(--ns-text-96a198, #96a198); font-size: 8px; }
 .resource-actions { display: flex; gap: 7px; margin-top: 13px; }
 .resource-actions button { flex: 1; min-height: 34px; font-size: 9px; }
 .detail-dialog { padding: 10px; }

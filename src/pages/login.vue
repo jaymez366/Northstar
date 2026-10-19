@@ -345,14 +345,14 @@
 
 :global(body) {
   margin: 0;
-  background: #f3f5ef;
-  color: #10231d;
+  background: var(--ns-bg-f3f5ef, #f3f5ef);
+  color: var(--ns-text-10231d, #10231d);
   font-family: "Manrope", sans-serif;
 }
 
 .login-page {
   min-height: 100vh;
-  background: #f3f5ef;
+  background: var(--ns-bg-f3f5ef, #f3f5ef);
 }
 
 .container {
@@ -365,14 +365,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #d4ddd1;
+  border-bottom: 1px solid var(--ns-border-d4ddd1, #d4ddd1);
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #18352d;
+  color: var(--ns-text-18352d, #18352d);
   text-decoration: none;
   font-size: 20px;
   font-weight: 800;
@@ -389,7 +389,7 @@
 .brand-mark span {
   display: block;
   width: 5px;
-  background: #e16b4c;
+  background: var(--ns-bg-e16b4c, #e16b4c);
 }
 
 .brand-mark span:nth-child(1) {
@@ -406,14 +406,14 @@
 
 .brand-dot,
 em {
-  color: #e16b4c;
+  color: var(--ns-text-e16b4c, #e16b4c);
   font-style: normal;
 }
 
 .nav-note,
 .section-overline,
 .demo-label {
-  color: #71897b;
+  color: var(--ns-text-71897b, #71897b);
   font: 10px "DM Mono", monospace;
   letter-spacing: 1.5px;
 }
@@ -429,7 +429,7 @@ em {
 
 .login-intro h1 {
   margin: 25px 0;
-  color: #18352d;
+  color: var(--ns-text-18352d, #18352d);
   font-size: clamp(48px, 5.7vw, 78px);
   line-height: 0.99;
   letter-spacing: -4px;
@@ -437,7 +437,7 @@ em {
 
 .intro-copy {
   max-width: 390px;
-  color: #6c7e73;
+  color: var(--ns-text-6c7e73, #6c7e73);
   font-size: 14px;
   line-height: 1.8;
 }
@@ -446,7 +446,7 @@ em {
   display: grid;
   gap: 14px;
   margin-top: 48px;
-  color: #18352d;
+  color: var(--ns-text-18352d, #18352d);
   font-size: 12px;
   font-weight: 700;
 }
@@ -458,14 +458,14 @@ em {
 }
 
 .signal-list .v-icon {
-  color: #e16b4c;
+  color: var(--ns-text-e16b4c, #e16b4c);
 }
 
 .login-panel {
   padding: 42px;
-  background: #18352d;
-  color: #f3f5ef;
-  box-shadow: 16px 18px 0 #dce7d5;
+  background: var(--ns-bg-18352d, #18352d);
+  color: var(--ns-text-f3f5ef, #f3f5ef);
+  box-shadow: 16px 18px 0 var(--ns-shadow-dce7d5, #dce7d5);
 }
 
 .panel-heading h2 {
@@ -475,7 +475,7 @@ em {
 }
 
 .login-panel .section-overline {
-  color: #aabcae;
+  color: var(--ns-text-aabcae, #aabcae);
 }
 
 form {
@@ -485,27 +485,27 @@ form {
 
 label {
   margin-top: 10px;
-  color: #bdcbbf;
+  color: var(--ns-text-bdcbbf, #bdcbbf);
   font-size: 11px;
   font-weight: 700;
 }
 
 input {
   width: 100%;
-  border: 1px solid #557064;
+  border: 1px solid var(--ns-border-557064, #557064);
   border-radius: 0;
   padding: 14px;
-  background: #24473d;
-  color: #f3f5ef;
+  background: var(--ns-bg-24473d, #24473d);
+  color: var(--ns-text-f3f5ef, #f3f5ef);
   font: 13px "Manrope", sans-serif;
 }
 
 input::placeholder {
-  color: #8da397;
+  color: var(--ns-text-8da397, #8da397);
 }
 
 input:focus {
-  outline: 2px solid #d4ec66;
+  outline: 2px solid var(--ns-border-d4ec66, #d4ec66);
   outline-offset: 2px;
 }
 
@@ -529,21 +529,21 @@ input:focus {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #d4ec66;
+  color: var(--ns-text-d4ec66, #d4ec66);
   cursor: pointer;
   opacity: 1;
   transition: color 120ms ease, background-color 120ms ease;
 }
 
 .password-visibility-toggle:hover {
-  background: #31564a;
-  color: #e5f38b;
+  background: var(--ns-bg-31564a, #31564a);
+  color: var(--ns-text-e5f38b, #e5f38b);
 }
 
 .password-visibility-toggle:focus-visible {
   z-index: 1;
   border-radius: 2px;
-  outline: 2px solid #e5f38b;
+  outline: 2px solid var(--ns-border-e5f38b, #e5f38b);
   outline-offset: -4px;
 }
 
@@ -552,7 +552,7 @@ input:focus {
   align-items: center;
   gap: 7px;
   margin: 12px 0 0;
-  color: #ffab91;
+  color: var(--ns-text-ffab91, #ffab91);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -562,7 +562,7 @@ input:focus {
   align-items: center;
   gap: 7px;
   margin: 12px 0 0;
-  color: #d4ec66;
+  color: var(--ns-text-d4ec66, #d4ec66);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -570,7 +570,7 @@ input:focus {
 .profile-retry {
   display: grid;
   gap: 8px;
-  color: #ffab91;
+  color: var(--ns-text-ffab91, #ffab91);
   font-size: 10px;
   line-height: 1.5;
 }
@@ -580,7 +580,7 @@ input:focus {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #d4ec66;
+  color: var(--ns-text-d4ec66, #d4ec66);
   cursor: pointer;
   font: 700 10px "Manrope", sans-serif;
 }
@@ -591,7 +591,7 @@ input:focus {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #d4ec66;
+  color: var(--ns-text-d4ec66, #d4ec66);
   cursor: pointer;
   font: 600 10px "Manrope", sans-serif;
 }
@@ -603,14 +603,14 @@ input:focus {
   margin-top: 20px;
   border: 0;
   padding: 15px 18px;
-  background: #d4ec66;
-  color: #18352d;
+  background: var(--ns-bg-d4ec66, #d4ec66);
+  color: var(--ns-text-18352d, #18352d);
   cursor: pointer;
   font: 700 12px "Manrope", sans-serif;
 }
 
 .submit-button:hover:not(:disabled) {
-  background: #e5f38b;
+  background: var(--ns-bg-e5f38b, #e5f38b);
 }
 
 .submit-button:disabled,
@@ -627,17 +627,17 @@ input:focus {
 }
 
 .password-reset-form label {
-  color: #bdcbbf;
+  color: var(--ns-text-bdcbbf, #bdcbbf);
   font-size: 10px;
   font-weight: 700;
 }
 
 .password-reset-form input {
   min-height: 42px;
-  border: 1px solid #557064;
+  border: 1px solid var(--ns-border-557064, #557064);
   padding: 0 11px;
-  background: #24473d;
-  color: #f3f5ef;
+  background: var(--ns-bg-24473d, #24473d);
+  color: var(--ns-text-f3f5ef, #f3f5ef);
   font: 12px "Manrope", sans-serif;
 }
 
@@ -647,17 +647,17 @@ input:focus {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid #91a881;
+  border: 1px solid var(--ns-border-91a881, #91a881);
   padding: 8px 12px;
   background: transparent;
-  color: #d4ec66;
+  color: var(--ns-text-d4ec66, #d4ec66);
   cursor: pointer;
   font: 700 10px "Manrope", sans-serif;
 }
 
 .mode-switch {
   margin: 22px 0 0;
-  color: #aabcae;
+  color: var(--ns-text-aabcae, #aabcae);
   font-size: 11px;
   text-align: center;
 }
@@ -666,18 +666,18 @@ input:focus {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #d4ec66;
+  color: var(--ns-text-d4ec66, #d4ec66);
   cursor: pointer;
   font: 700 11px "Manrope", sans-serif;
 }
 
 .mode-switch button:hover {
-  color: #e5f38b;
+  color: var(--ns-text-e5f38b, #e5f38b);
 }
 .verification-link {
   display: inline-block;
   margin: 7px 0;
-  color: #d4ec66;
+  color: var(--ns-text-d4ec66, #d4ec66);
   font-size: 10px;
   font-weight: 700;
   text-decoration: none;
@@ -687,8 +687,8 @@ input:focus {
   display: flex;
   justify-content: space-between;
   padding: 20px 0 30px;
-  border-top: 1px solid #d4ddd1;
-  color: #82958a;
+  border-top: 1px solid var(--ns-border-d4ddd1, #d4ddd1);
+  color: var(--ns-text-82958a, #82958a);
   font-size: 10px;
 }
 

@@ -2,6 +2,7 @@
   import { onMounted, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 
   const auth = useAuthStore()
   const router = useRouter()
@@ -41,6 +42,7 @@
       </router-link>
 
       <div class="admin-topbar-actions">
+        <ThemeSwitcher />
         <v-menu location="bottom end">
           <template #activator="{ props }">
             <button v-bind="props" class="admin-profile-button" type="button">
@@ -81,7 +83,7 @@
 </template>
 
 <style scoped>
-.admin-shell { min-height: 100vh; background: #f3f5ef; color: #10231d; }
+.admin-shell { min-height: 100vh; background: var(--ns-bg-f3f5ef, #f3f5ef); color: var(--ns-text-10231d, #10231d); }
 .admin-topbar {
   position: sticky;
   z-index: 5;
@@ -92,25 +94,25 @@
   justify-content: space-between;
   gap: 20px;
   padding: 0 max(24px, calc((100vw - 1240px) / 2));
-  border-bottom: 1px solid #dce4d8;
-  background: #fff;
+  border-bottom: 1px solid var(--ns-border-dce4d8, #dce4d8);
+  background: var(--ns-bg-fff, #fff);
 }
-.admin-brand { display: flex; align-items: center; gap: 9px; color: #18352d; text-decoration: none; font-size: 19px; font-weight: 800; letter-spacing: -1px; }
+.admin-brand { display: flex; align-items: center; gap: 9px; color: var(--ns-text-18352d, #18352d); text-decoration: none; font-size: 19px; font-weight: 800; letter-spacing: -1px; }
 .brand-mark { display: flex; height: 19px; align-items: end; gap: 2px; }
-.brand-mark span { display: block; width: 5px; background: #e16b4c; }
+.brand-mark span { display: block; width: 5px; background: var(--ns-bg-e16b4c, #e16b4c); }
 .brand-mark span:nth-child(1) { height: 10px; }
 .brand-mark span:nth-child(2) { height: 16px; }
 .brand-mark span:nth-child(3) { height: 13px; }
-.brand-dot { color: #e16b4c; }
-.portal-label { margin-left: 7px; padding-left: 14px; border-left: 1px solid #dce4d8; color: #71897b; font: 9px "DM Mono", monospace; letter-spacing: 1px; }
+.brand-dot { color: var(--ns-text-e16b4c, #e16b4c); }
+.portal-label { margin-left: 7px; padding-left: 14px; border-left: 1px solid var(--ns-border-dce4d8, #dce4d8); color: var(--ns-text-71897b, #71897b); font: 9px "DM Mono", monospace; letter-spacing: 1px; }
 .admin-topbar-actions { display: flex; align-items: center; gap: 10px; }
-.admin-icon-button { position: relative; display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid #e3e9df; background: #fff; color: #52645a; cursor: pointer; }
-.notification-count { position: absolute; top: -5px; right: -5px; display: grid; min-width: 16px; height: 16px; place-items: center; border-radius: 9px; padding: 0 4px; background: #e16b4c; color: #fff; font-size: 8px; }
-.admin-profile-button { display: flex; align-items: center; gap: 9px; border: 0; background: transparent; color: #18352d; cursor: pointer; text-align: left; }
-.admin-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: #eaf3bd; color: #526738; font-size: 12px; font-weight: 800; }
+.admin-icon-button { position: relative; display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--ns-border-e3e9df, #e3e9df); background: var(--ns-bg-fff, #fff); color: var(--ns-text-52645a, #52645a); cursor: pointer; }
+.notification-count { position: absolute; top: -5px; right: -5px; display: grid; min-width: 16px; height: 16px; place-items: center; border-radius: 9px; padding: 0 4px; background: var(--ns-bg-e16b4c, #e16b4c); color: var(--ns-text-fff, #fff); font-size: 8px; }
+.admin-profile-button { display: flex; align-items: center; gap: 9px; border: 0; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; text-align: left; }
+.admin-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--ns-bg-eaf3bd, #eaf3bd); color: var(--ns-text-526738, #526738); font-size: 12px; font-weight: 800; }
 .admin-profile-copy { display: grid; gap: 3px; }
 .admin-profile-copy strong { font-size: 10px; }
-.admin-profile-copy small { color: #829187; font-size: 9px; }
+.admin-profile-copy small { color: var(--ns-text-829187, #829187); font-size: 9px; }
 .admin-menu-list { max-width: min(360px, calc(100vw - 24px)); }
 .admin-content { width: min(1240px, calc(100% - 48px)); margin: 0 auto; padding: 26px 0 40px; }
 .admin-data-alert { margin-bottom: 16px; }

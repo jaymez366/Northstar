@@ -122,33 +122,33 @@
 </template>
 
 <style scoped>
-.success-note { display: flex; align-items: center; gap: 8px; margin: -10px 0 16px; color: #4b8058; font-size: 11px; }
+.success-note { display: flex; align-items: center; gap: 8px; margin: -10px 0 16px; color: var(--ns-text-4b8058, #4b8058); font-size: 11px; }
 .profile-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); align-items: start; gap: 15px; }
 .profile-card { padding: 25px 20px; text-align: center; }
-.profile-avatar { display: grid; width: 76px; height: 76px; margin: 0 auto; place-items: center; border: 5px solid #f2f5ed; border-radius: 50%; background: #dce8ba; color: #18352d; font-size: 23px; font-weight: 800; }
+.profile-avatar { display: grid; width: 76px; height: 76px; margin: 0 auto; place-items: center; border: 5px solid var(--ns-border-f2f5ed, #f2f5ed); border-radius: 50%; background: var(--ns-bg-dce8ba, #dce8ba); color: var(--ns-text-18352d, #18352d); font-size: 23px; font-weight: 800; }
 .profile-avatar[style*="background-image"] { background-position: center; background-size: cover; }
-.profile-card h2 { margin: 13px 0 4px; color: #18352d; font-size: 16px; }
-.profile-card > p { margin: 0; color: #718178; font-size: 10px; }
-.profile-status { display: inline-flex; align-items: center; gap: 6px; margin-top: 13px; color: #66806f; font-size: 9px; }
-.profile-status i { width: 6px; height: 6px; border-radius: 50%; background: #70a879; }
-.profile-divider { height: 1px; margin: 20px 0 16px; background: #edf0e9; }
-.profile-card > small, .edit-label { color: #829187; font: 8px "DM Mono", monospace; letter-spacing: 1px; }
+.profile-card h2 { margin: 13px 0 4px; color: var(--ns-text-18352d, #18352d); font-size: 16px; }
+.profile-card > p { margin: 0; color: var(--ns-text-718178, #718178); font-size: 10px; }
+.profile-status { display: inline-flex; align-items: center; gap: 6px; margin-top: 13px; color: var(--ns-text-66806f, #66806f); font-size: 9px; }
+.profile-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--ns-bg-70a879, #70a879); }
+.profile-divider { height: 1px; margin: 20px 0 16px; background: var(--ns-bg-edf0e9, #edf0e9); }
+.profile-card > small, .edit-label { color: var(--ns-text-829187, #829187); font: 8px "DM Mono", monospace; letter-spacing: 1px; }
 .photo-button { width: 100%; margin-top: 9px; font-size: 9px; }
 .photo-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
-.photo-error, .photo-hint { margin: 8px 0 0; color: #829187; font-size: 8px; }
-.photo-error { color: #b85138; }
+.photo-error, .photo-hint { margin: 8px 0 0; color: var(--ns-text-829187, #829187); font-size: 8px; }
+.photo-error { color: var(--ns-text-b85138, #b85138); }
 .profile-form { padding: 22px; }
 .form-section-heading { display: flex; align-items: start; justify-content: space-between; margin-bottom: 19px; }
-.form-section-heading h2 { margin: 0; color: #18352d; font-size: 15px; }
-.form-section-heading p { margin: 5px 0 0; color: #829187; font-size: 10px; }
+.form-section-heading h2 { margin: 0; color: var(--ns-text-18352d, #18352d); font-size: 15px; }
+.form-section-heading p { margin: 5px 0 0; color: var(--ns-text-829187, #829187); font-size: 10px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
-.form-grid label { display: grid; gap: 7px; color: #52645a; font-size: 10px; font-weight: 700; }
-.form-grid input, .form-grid select { width: 100%; min-height: 39px; border: 1px solid #dce4d8; border-radius: 0; padding: 0 11px; background: #fff; color: #18352d; font: 11px "Manrope", sans-serif; }
-.bio-field { display: grid; gap: 6px; margin-top: 14px; color: #52645a; font-size: 10px; font-weight: 700; }
-.bio-field textarea { min-height: 74px; border: 1px solid #dce4d9; padding: 9px 11px; background: #fbfcf9; color: #18352d; font: 11px/1.6 "Manrope", sans-serif; resize: vertical; }
+.form-grid label { display: grid; gap: 7px; color: var(--ns-text-52645a, #52645a); font-size: 10px; font-weight: 700; }
+.form-grid input, .form-grid select { width: 100%; min-height: 39px; border: 1px solid var(--ns-border-dce4d8, #dce4d8); border-radius: 0; padding: 0 11px; background: var(--ns-bg-fff, #fff); color: var(--ns-text-18352d, #18352d); font: 11px "Manrope", sans-serif; }
+.bio-field { display: grid; gap: 6px; margin-top: 14px; color: var(--ns-text-52645a, #52645a); font-size: 10px; font-weight: 700; }
+.bio-field textarea { min-height: 74px; border: 1px solid var(--ns-border-dce4d9, #dce4d9); padding: 9px 11px; background: var(--ns-bg-fbfcf9, #fbfcf9); color: var(--ns-text-18352d, #18352d); font: 11px/1.6 "Manrope", sans-serif; resize: vertical; }
 .bio-field textarea[readonly] { border-color: transparent; padding-left: 0; background: transparent; }
-.form-grid input:read-only, .form-grid select:disabled { background: #f6f7f3; color: #718178; }
-.form-grid label small { color: #94a097; font-size: 8px; font-weight: 400; }
+.form-grid input:read-only, .form-grid select:disabled { background: var(--ns-bg-f6f7f3, #f6f7f3); color: var(--ns-text-718178, #718178); }
+.form-grid label small { color: var(--ns-text-94a097, #94a097); font-size: 8px; font-weight: 400; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 @media (max-width: 760px) { .profile-layout { grid-template-columns: 1fr; } .form-grid { grid-template-columns: 1fr; } }
 </style>

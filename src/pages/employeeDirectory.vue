@@ -74,7 +74,7 @@ function isUuid (value: string): boolean {
 
 <style scoped>
 .directory-count {
-  color: #829187;
+  color: var(--ns-text-829187, #829187);
   font-size: 11px;
 }
 
@@ -100,7 +100,7 @@ function isUuid (value: string): boolean {
   height: 48px;
   place-items: center;
   border-radius: 50%;
-  color: #18352d;
+  color: var(--ns-text-18352d, #18352d);
   font-size: 13px;
   font-weight: 800;
 }
@@ -114,7 +114,7 @@ function isUuid (value: string): boolean {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: #829187;
+  color: var(--ns-text-829187, #829187);
   font-size: 9px;
 }
 
@@ -122,22 +122,22 @@ function isUuid (value: string): boolean {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #a5b0a8;
+  background: var(--ns-bg-a5b0a8, #a5b0a8);
 }
 
 .presence.online i {
-  background: #70a879;
+  background: var(--ns-bg-70a879, #70a879);
 }
 
 .employee-card h2 {
   margin: 17px 0 4px;
-  color: #18352d;
+  color: var(--ns-text-18352d, #18352d);
   font-size: 15px;
 }
 
 .employee-title {
   margin: 0;
-  color: #718178;
+  color: var(--ns-text-718178, #718178);
   font-size: 10px;
 }
 
@@ -145,8 +145,8 @@ function isUuid (value: string): boolean {
   display: inline-block;
   margin-top: 12px;
   padding: 5px 8px;
-  background: #edf2e6;
-  color: #526c5c;
+  background: var(--ns-bg-edf2e6, #edf2e6);
+  color: var(--ns-text-526c5c, #526c5c);
   font-size: 9px;
 }
 
@@ -154,7 +154,7 @@ function isUuid (value: string): boolean {
   display: block;
   overflow: hidden;
   margin-top: 14px;
-  color: #627d6d;
+  color: var(--ns-text-627d6d, #627d6d);
   text-overflow: ellipsis;
   font-size: 10px;
   text-decoration: none;
@@ -175,8 +175,8 @@ function isUuid (value: string): boolean {
   display: grid;
   width: 40px;
   place-items: center;
-  border: 1px solid #d1dbcd;
-  color: #526c5c;
+  border: 1px solid var(--ns-border-d1dbcd, #d1dbcd);
+  color: var(--ns-text-526c5c, #526c5c);
 }
 
 @media (max-width: 900px) {

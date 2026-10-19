@@ -190,27 +190,27 @@
 .approval-page { display: grid; min-height: 62vh; place-items: center; padding: 20px; }
 .approval-card { width: min(100%, 550px); padding: clamp(24px, 5vw, 40px); }
 .details-card { width: min(100%, 720px); }
-.approval-icon { display: grid; width: 48px; height: 48px; place-items: center; background: #f8e8df; color: #b8583e; }
-.eyebrow { margin: 23px 0 10px; color: #758b7c; font: 9px "DM Mono", monospace; letter-spacing: 1.5px; }
-h1 { margin: 0; color: #18352d; font-size: clamp(34px, 6vw, 48px); line-height: 1.03; letter-spacing: -2px; }
-h1 em { color: #e16b4c; font-style: normal; }
-.approval-copy { max-width: 410px; margin: 16px 0; color: #718178; font-size: 11px; line-height: 1.8; }
-.approval-state { display: flex; align-items: center; gap: 8px; color: #9b7049; font-size: 10px; }
-.approval-state i { width: 7px; height: 7px; border-radius: 50%; background: #d79354; }
-.approval-state.rejected { color: #a34c39; }
-.approval-state.rejected i { background: #b85138; }
-.approval-error { color: #a34c39; font-size: 10px; }
-.rejection-copy { border-left: 3px solid #b85138; padding: 10px 12px; background: #fff7f3; color: #843f31; font-size: 11px; line-height: 1.7; white-space: pre-wrap; }
+.approval-icon { display: grid; width: 48px; height: 48px; place-items: center; background: var(--ns-bg-f8e8df, #f8e8df); color: var(--ns-text-b8583e, #b8583e); }
+.eyebrow { margin: 23px 0 10px; color: var(--ns-text-758b7c, #758b7c); font: 9px "DM Mono", monospace; letter-spacing: 1.5px; }
+h1 { margin: 0; color: var(--ns-text-18352d, #18352d); font-size: clamp(34px, 6vw, 48px); line-height: 1.03; letter-spacing: -2px; }
+h1 em { color: var(--ns-text-e16b4c, #e16b4c); font-style: normal; }
+.approval-copy { max-width: 410px; margin: 16px 0; color: var(--ns-text-718178, #718178); font-size: 11px; line-height: 1.8; }
+.approval-state { display: flex; align-items: center; gap: 8px; color: var(--ns-text-9b7049, #9b7049); font-size: 10px; }
+.approval-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--ns-bg-d79354, #d79354); }
+.approval-state.rejected { color: var(--ns-text-a34c39, #a34c39); }
+.approval-state.rejected i { background: var(--ns-bg-b85138, #b85138); }
+.approval-error { color: var(--ns-text-a34c39, #a34c39); font-size: 10px; }
+.rejection-copy { border-left: 3px solid var(--ns-border-b85138, #b85138); padding: 10px 12px; background: var(--ns-bg-fff7f3, #fff7f3); color: var(--ns-text-843f31, #843f31); font-size: 11px; line-height: 1.7; white-space: pre-wrap; }
 .approval-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 23px; }
 .approval-actions button { min-height: 39px; font-size: 9px; }
 .resubmit-action { display: inline-flex; min-height: 39px; align-items: center; text-decoration: none; }
 .submitted-details { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 20px; }
-.submitted-photo-wrap { display: grid; min-height: 150px; place-items: center; border: 1px solid #e3e9dc; background: #f8f9f6; }
+.submitted-photo-wrap { display: grid; min-height: 150px; place-items: center; border: 1px solid var(--ns-border-e3e9dc, #e3e9dc); background: var(--ns-bg-f8f9f6, #f8f9f6); }
 .submitted-photo-wrap img { display: block; width: 100%; height: 150px; object-fit: contain; }
-.submitted-photo-placeholder { display: flex; min-height: 70px; align-items: center; gap: 8px; color: #829187; font-size: 10px; }
+.submitted-photo-placeholder { display: flex; min-height: 70px; align-items: center; gap: 8px; color: var(--ns-text-829187, #829187); font-size: 10px; }
 .submitted-detail-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 16px; margin: 0; }
 .submitted-detail-list > div { min-width: 0; }
-.submitted-detail-list dt { color: #829187; font-size: 9px; }
-.submitted-detail-list dd { margin: 3px 0 0; color: #18352d; font-size: 11px; overflow-wrap: anywhere; }
+.submitted-detail-list dt { color: var(--ns-text-829187, #829187); font-size: 9px; }
+.submitted-detail-list dd { margin: 3px 0 0; color: var(--ns-text-18352d, #18352d); font-size: 11px; overflow-wrap: anywhere; }
 @media (max-width: 580px) { .submitted-details { grid-template-columns: 1fr; } .submitted-photo-wrap { width: min(100%, 170px); } .submitted-detail-list { grid-template-columns: 1fr; } }
 </style>

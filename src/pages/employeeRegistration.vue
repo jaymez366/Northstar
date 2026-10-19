@@ -213,26 +213,26 @@
 
 <style scoped>
 .registration-page { max-width: 940px; margin: 0 auto; }
-.photo-choice { display: grid; gap: 10px; border: 1px solid #dce4d9; padding: 14px; color: #53665a; font-size: 10px; }
+.photo-choice { display: grid; gap: 10px; border: 1px solid var(--ns-border-dce4d9, #dce4d9); padding: 14px; color: var(--ns-text-53665a, #53665a); font-size: 10px; }
 .photo-choice legend { padding: 0 5px; font-weight: 700; }
 .photo-choice label { display: flex; align-items: center; gap: 8px; }
 .registration-form { display: grid; gap: 25px; padding: clamp(18px, 4vw, 30px); }
-.registration-section + .registration-section { border-top: 1px solid #e8ede5; padding-top: 23px; }
+.registration-section + .registration-section { border-top: 1px solid var(--ns-border-e8ede5, #e8ede5); padding-top: 23px; }
 .section-title { margin-bottom: 15px; }
-.section-title h2 { margin: 0; color: #18352d; font-size: 15px; }
-.section-title p { margin: 5px 0 0; color: #829187; font-size: 10px; line-height: 1.6; }
+.section-title h2 { margin: 0; color: var(--ns-text-18352d, #18352d); font-size: 15px; }
+.section-title p { margin: 5px 0 0; color: var(--ns-text-829187, #829187); font-size: 10px; line-height: 1.6; }
 .registration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
-.registration-grid label, .bio-field { display: grid; align-content: start; gap: 7px; color: #53665a; font-size: 10px; font-weight: 700; }
-.registration-grid label > span { color: #d35f46; }
+.registration-grid label, .bio-field { display: grid; align-content: start; gap: 7px; color: var(--ns-text-53665a, #53665a); font-size: 10px; font-weight: 700; }
+.registration-grid label > span { color: var(--ns-text-d35f46, #d35f46); }
 .registration-grid input, .registration-grid select, .bio-field textarea {
-  width: 100%; min-height: 40px; border: 1px solid #dce4d9; border-radius: 0;
-  padding: 9px 11px; background: #fbfcf9; color: #18352d; font: 11px "Manrope", sans-serif;
+  width: 100%; min-height: 40px; border: 1px solid var(--ns-border-dce4d9, #dce4d9); border-radius: 0;
+  padding: 9px 11px; background: var(--ns-bg-fbfcf9, #fbfcf9); color: var(--ns-text-18352d, #18352d); font: 11px "Manrope", sans-serif;
 }
-.registration-grid input[readonly] { background: #f1f4ee; color: #78877e; }
+.registration-grid input[readonly] { background: var(--ns-bg-f1f4ee, #f1f4ee); color: var(--ns-text-78877e, #78877e); }
 .registration-grid input[type="file"] { padding: 7px; }
-.registration-grid label small { color: #8b9990; font-size: 8px; font-weight: 400; }
+.registration-grid label small { color: var(--ns-text-8b9990, #8b9990); font-size: 8px; font-weight: 400; }
 .bio-field textarea { resize: vertical; line-height: 1.6; }
-.form-error { margin: 0; color: #a34c39; font-size: 10px; }
+.form-error { margin: 0; color: var(--ns-text-a34c39, #a34c39); font-size: 10px; }
 .form-actions { display: flex; justify-content: flex-end; }
 .primary-action:disabled { cursor: wait; opacity: .65; }
 .loading-icon { animation: rotate 1s linear infinite; }
