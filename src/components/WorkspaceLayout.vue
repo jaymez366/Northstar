@@ -1,6 +1,6 @@
 <script setup lang="ts">
-  import { onMounted, onUnmounted, watch } from 'vue'
-  import { useRouter } from 'vue-router'
+  import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+  import { useRoute, useRouter } from 'vue-router'
   import GlobalSearch from '@/components/GlobalSearch.vue'
   import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
   import { useAuthStore } from '@/stores/auth'
@@ -9,6 +9,11 @@
   const auth = useAuthStore()
   const workspace = useWorkspaceStore()
   const router = useRouter()
+  const route = useRoute()
+  const mobileMenuOpen = ref(false)
+  const mobileMenuToggle = ref<HTMLButtonElement | null>(null)
+  const mobileMenuClose = ref<HTMLButtonElement | null>(null)
+  let previousBodyOverflow = ''
 
   const primaryLinks = [
     { title: 'Overview', to: '/overview', icon: 'mdi-view-dashboard-outline' },
@@ -23,11 +28,43 @@
   ]
 
   async function logout () {
+    closeMobileNavigation()
     if (await auth.logout()) {
       workspace.clearWorkspace()
       await router.replace('/login')
     }
   }
+
+  function closeMobileNavigation () {
+    mobileMenuOpen.value = false
+  }
+
+  function handleMobileMenuKeydown (event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      closeMobileNavigation()
+      nextTick(() => mobileMenuToggle.value?.focus())
+    }
+  }
+
+  function handleViewportResize () {
+    if (window.matchMedia('(min-width: 681px)').matches) closeMobileNavigation()
+  }
+
+  watch(mobileMenuOpen, async isOpen => {
+    if (isOpen) {
+      previousBodyOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      window.addEventListener('keydown', handleMobileMenuKeydown)
+      await nextTick()
+      mobileMenuClose.value?.focus()
+      return
+    }
+
+    document.body.style.overflow = previousBodyOverflow
+    window.removeEventListener('keydown', handleMobileMenuKeydown)
+  })
+
+  watch(() => route.fullPath, closeMobileNavigation)
 
   function openMessageToast () {
     const conversationId = workspace.messageToast?.conversationId
@@ -42,6 +79,7 @@
   })
 
   onMounted(() => {
+    window.addEventListener('resize', handleViewportResize)
     void workspace.load()
     if (auth.canAccessEmployeeWorkspace) {
       workspace.subscribeToMessages()
@@ -49,15 +87,39 @@
   })
 
   onUnmounted(() => workspace.unsubscribeFromMessages())
+  onUnmounted(() => {
+    document.body.style.overflow = previousBodyOverflow
+    window.removeEventListener('keydown', handleMobileMenuKeydown)
+    window.removeEventListener('resize', handleViewportResize)
+  })
 </script>
 
 <template>
   <div class="workspace-shell">
-    <aside class="sidebar">
-      <router-link aria-label="Northstar home" class="brand" to="/">
-        <span class="brand-mark"><span /><span /><span /></span>
-        <span>northstar<span class="brand-dot">.</span></span>
-      </router-link>
+    <button
+      v-if="mobileMenuOpen"
+      aria-label="Close navigation menu"
+      class="mobile-menu-backdrop"
+      type="button"
+      @click="closeMobileNavigation"
+    />
+
+    <aside id="workspace-navigation" class="sidebar" :class="{ 'mobile-menu-open': mobileMenuOpen }">
+      <div class="sidebar-heading">
+        <router-link aria-label="Northstar home" class="brand" to="/" @click="closeMobileNavigation">
+          <span class="brand-mark"><span /><span /><span /></span>
+          <span>northstar<span class="brand-dot">.</span></span>
+        </router-link>
+        <button
+          ref="mobileMenuClose"
+          aria-label="Close navigation menu"
+          class="mobile-menu-close"
+          type="button"
+          @click="closeMobileNavigation"
+        >
+          <v-icon icon="mdi-close" size="22" />
+        </button>
+      </div>
 
       <p class="nav-label">WORKSPACE</p>
 
@@ -67,28 +129,29 @@
           :key="link.to"
           active-class="active"
           :to="link.to"
+          @click="closeMobileNavigation"
         >
           <v-icon :icon="link.icon" size="19" />
           <span>{{ link.title }}</span>
         </router-link>
 
-        <router-link active-class="active" to="/notifications">
+        <router-link active-class="active" to="/notifications" @click="closeMobileNavigation">
           <v-icon icon="mdi-bell-outline" size="19" />
           <span>Notifications</span>
           <span v-if="workspace.unreadNotifications" class="unread-count">{{ workspace.unreadNotifications }}</span>
         </router-link>
         <div class="sidebar-bottom">
-          <router-link active-class="active" to="/profile">
+          <router-link active-class="active" to="/profile" @click="closeMobileNavigation">
             <v-icon icon="mdi-account-circle-outline" size="19" />
             <span>Profile</span>
           </router-link>
 
-          <router-link active-class="active" to="/settings">
+          <router-link active-class="active" to="/settings" @click="closeMobileNavigation">
             <v-icon icon="mdi-cog-outline" size="19" />
             <span>Settings</span>
           </router-link>
 
-          <router-link v-if="auth.isAdmin" active-class="active" to="/admin">
+          <router-link v-if="auth.isAdmin" active-class="active" to="/admin" @click="closeMobileNavigation">
             <v-icon icon="mdi-shield-account-outline" size="19" />
             <span>Admin dashboard</span>
           </router-link>
@@ -103,6 +166,17 @@
 
     <div class="workspace-column">
       <header class="topbar">
+        <button
+          ref="mobileMenuToggle"
+          :aria-expanded="mobileMenuOpen"
+          aria-controls="workspace-navigation"
+          :aria-label="mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'"
+          class="mobile-menu-toggle"
+          type="button"
+          @click="mobileMenuOpen = !mobileMenuOpen"
+        >
+          <v-icon :icon="mobileMenuOpen ? 'mdi-close' : 'mdi-menu'" size="23" />
+        </button>
         <GlobalSearch />
 
         <div class="topbar-actions">
@@ -201,6 +275,9 @@ body { min-width: 320px; margin: 0; background: var(--ns-bg-f3f5ef, #f3f5ef); }
   font-weight: 800;
   letter-spacing: -1px;
 }
+.sidebar-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; }
+.mobile-menu-toggle, .mobile-menu-close { display: none; }
+.mobile-menu-backdrop { display: none; }
 .brand-mark { display: flex; align-items: end; gap: 2px; height: 20px; }
 .brand-mark span { display: block; width: 5px; background: var(--ns-bg-d4ec66, #d4ec66); }
 .brand-mark span:nth-child(1) { height: 11px; }
@@ -329,18 +406,74 @@ body { min-width: 320px; margin: 0; background: var(--ns-bg-f3f5ef, #f3f5ef); }
   .workspace-main { padding: 25px 22px 38px; }
 }
 @media (max-width: 680px) {
-  .sidebar { position: sticky; inset: 0 0 auto; width: 100%; height: auto; max-height: 100vh; max-height: 100dvh; padding: 12px 14px 8px; }
-  .sidebar .brand { padding: 0 4px 10px; }
-  .nav-label { display: none; }
-  .side-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); }
-  .sidebar-bottom { display: contents; }
-  .side-nav a { min-height: 34px; gap: 7px; padding: 0 8px; font-size: 9px; }
-  .side-nav a.active { box-shadow: inset 2px 0 var(--ns-shadow-d4ec66, #d4ec66); }
-  .side-nav a .v-icon { display: none; }
+  .sidebar {
+    position: fixed;
+    z-index: 30;
+    inset: 0 auto 0 0;
+    width: min(320px, 88vw);
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    padding: 18px 16px 14px;
+    box-shadow: 18px 0 48px rgb(7 15 28 / 24%);
+    transform: translateX(-105%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 180ms ease, visibility 0s linear 180ms;
+  }
+  .sidebar.mobile-menu-open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition: transform 180ms ease;
+  }
+  .sidebar-heading { min-height: 44px; gap: 12px; }
+  .sidebar .brand { padding: 0 4px; }
+  .mobile-menu-close {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    place-items: center;
+    border: 1px solid var(--ns-border);
+    border-radius: 9px;
+    background: var(--ns-surface-raised);
+    color: var(--ns-text-primary);
+    cursor: pointer;
+  }
+  .mobile-menu-close:focus-visible,
+  .mobile-menu-toggle:focus-visible { outline: 2px solid var(--ns-primary); outline-offset: 2px; }
+  .mobile-menu-backdrop {
+    position: fixed;
+    z-index: 29;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgb(8 15 27 / 48%);
+    cursor: default;
+  }
+  .nav-label { display: block; margin: 22px 10px 10px; }
+  .side-nav { display: flex; max-height: none; flex: 1 1 auto; gap: 5px; overflow-y: auto; }
+  .sidebar-bottom { display: grid; margin-top: auto; }
+  .side-nav a, .sidebar-bottom a, .logout-button { min-height: 48px; gap: 12px; padding: 0 12px; font-size: 12px; }
+  .side-nav a.active { box-shadow: inset 3px 0 var(--ns-primary); }
+  .side-nav a .v-icon { display: inline-flex; }
   .workspace-column { margin-left: 0; }
-  .topbar { position: relative; height: auto; min-height: 64px; flex-wrap: wrap; gap: 10px; padding: 10px 18px; }
+  .topbar { position: sticky; height: auto; min-height: 64px; flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+  .mobile-menu-toggle {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    place-items: center;
+    border: 1px solid var(--ns-border);
+    border-radius: 9px;
+    background: var(--ns-surface);
+    color: var(--ns-text-primary);
+    cursor: pointer;
+  }
   .topbar > .global-search { order: 2; }
-  .topbar-actions { margin-left: auto; }
+  .topbar-actions { gap: 12px; margin-left: auto; }
   .user-summary small { display: none; }
   .workspace-main { padding: 23px 17px 32px; }
   .page-heading { align-items: flex-start; flex-direction: column; }
