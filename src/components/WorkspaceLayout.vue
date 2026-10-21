@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import GlobalSearch from '@/components/GlobalSearch.vue'
   import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
@@ -11,9 +11,21 @@
   const router = useRouter()
   const route = useRoute()
   const mobileMenuOpen = ref(false)
+  const employeeProfileMenuOpen = ref(false)
   const mobileMenuToggle = ref<HTMLButtonElement | null>(null)
   const mobileMenuClose = ref<HTMLButtonElement | null>(null)
   let previousBodyOverflow = ''
+
+  const employeeDisplayName = computed(() => {
+    const fullName = [auth.profile.firstName, auth.profile.lastName].filter(Boolean).join(' ').trim()
+    return fullName || auth.userFirstName || 'Northstar member'
+  })
+  const employeeInitials = computed(() => {
+    const nameParts = employeeDisplayName.value.split(/\s+/).filter(Boolean)
+    return nameParts.length > 1
+      ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
+      : (nameParts[0]?.slice(0, 2) || 'NS').toUpperCase()
+  })
 
   const primaryLinks = [
     { title: 'Overview', to: '/overview', icon: 'mdi-view-dashboard-outline' },
@@ -191,10 +203,51 @@
             <span v-if="workspace.unreadNotifications" class="notification-dot" />
           </router-link>
 
-          <router-link class="user-summary" to="/profile">
-            <span class="user-avatar" :style="auth.profile.photoUrl ? { backgroundImage: `url(${auth.profile.photoUrl})` } : undefined">{{ !auth.profile.photoUrl && (auth.profile.firstName || auth.userFirstName || 'U').charAt(0).toUpperCase() }}</span>
-            <span><strong>{{ auth.profile.firstName || auth.userFirstName }}</strong><small>{{ auth.profile.jobTitle || 'Northstar member' }}</small></span>
-          </router-link>
+          <v-menu v-model="employeeProfileMenuOpen" location="bottom end" :close-on-content-click="true">
+            <template #activator="{ props }">
+              <button
+                v-bind="props"
+                class="user-summary"
+                type="button"
+                aria-label="Open employee profile menu"
+                aria-haspopup="menu"
+                :aria-expanded="employeeProfileMenuOpen"
+              >
+                <span
+                  class="user-avatar"
+                  :style="auth.profile.photoUrl ? { backgroundImage: `url(${auth.profile.photoUrl})` } : undefined"
+                  aria-hidden="true"
+                >{{ !auth.profile.photoUrl && employeeInitials }}</span>
+                <span class="user-summary-copy">
+                  <strong>{{ employeeDisplayName }}</strong>
+                  <small>{{ auth.profile.jobTitle || 'Northstar member' }}</small>
+                </span>
+                <v-icon class="user-menu-chevron" icon="mdi-chevron-down" size="17" aria-hidden="true" />
+              </button>
+            </template>
+
+            <v-list class="employee-profile-menu" density="compact" role="menu">
+              <v-list-item
+                prepend-icon="mdi-account-circle-outline"
+                title="Profile"
+                to="/profile"
+                role="menuitem"
+              />
+              <v-list-item
+                prepend-icon="mdi-cog-outline"
+                title="Settings"
+                to="/settings"
+                role="menuitem"
+              />
+              <v-divider class="my-1" />
+              <v-list-item
+                prepend-icon="mdi-logout"
+                title="Sign Out"
+                role="menuitem"
+                @click="logout"
+              />
+            </v-list>
+          </v-menu>
         </div>
       </header>
 
@@ -349,12 +402,17 @@ body { min-width: 320px; margin: 0; background: var(--ns-bg-f3f5ef, #f3f5ef); }
 .topbar-actions { display: flex; align-items: center; gap: 22px; }
 .notification-button { position: relative; color: var(--ns-text-526c5c, #526c5c); }
 .notification-dot { position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border: 1px solid var(--ns-border-f9faf6, #f9faf6); border-radius: 50%; background: var(--ns-bg-e16b4c, #e16b4c); }
-.user-summary { display: flex; align-items: center; gap: 10px; color: var(--ns-text-18352d, #18352d); text-decoration: none; }
+.user-summary { display: flex; min-width: 0; align-items: center; gap: 10px; border: 0; padding: 4px 0 4px 4px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; text-align: left; }
+.user-summary:focus-visible { border-radius: 8px; outline: 2px solid var(--ns-primary); outline-offset: 3px; }
 .user-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--ns-bg-dce8ba, #dce8ba); font-size: 12px; font-weight: 800; }
 .user-avatar[style*="background-image"] { background-position: center; background-size: cover; }
-.user-summary > span:last-child { display: grid; gap: 3px; }
+.user-summary-copy { display: grid; min-width: 0; gap: 3px; }
 .user-summary strong { font-size: 11px; }
 .user-summary small { color: var(--ns-text-829187, #829187); font-size: 9px; }
+.user-menu-chevron { flex: 0 0 auto; color: var(--ns-text-secondary); }
+.employee-profile-menu { min-width: 190px; max-width: min(280px, calc(100vw - 24px)); background: var(--ns-surface); color: var(--ns-text-primary); }
+.employee-profile-menu .v-list-item { color: var(--ns-text-primary); }
+.employee-profile-menu .v-list-item:hover { background: var(--ns-surface-hover); }
 .workspace-main { width: min(1240px, 100%); min-height: calc(100vh - 72px); margin: 0 auto; padding: 30px 34px 48px; }
 .compact-workspace .workspace-main { padding-top: 18px; }
 .compact-workspace .surface-card { border-radius: 0; }
@@ -479,6 +537,9 @@ body { min-width: 320px; margin: 0; background: var(--ns-bg-f3f5ef, #f3f5ef); }
   }
   .topbar > .global-search { order: 2; }
   .topbar-actions { gap: 12px; margin-left: auto; }
+  .user-summary { max-width: min(42vw, 210px); gap: 7px; }
+  .user-summary-copy { overflow: hidden; }
+  .user-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .user-summary small { display: none; }
   .workspace-main { padding: 23px 17px 32px; }
   .page-heading { align-items: flex-start; flex-direction: column; }

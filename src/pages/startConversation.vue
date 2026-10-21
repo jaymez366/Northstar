@@ -142,11 +142,9 @@
             Your message has been saved. A Northstar team member will follow up with you.
           </p>
 
-          <router-link
-            class="return-link"
-            to="/overview"
-          ><v-icon icon="mdi-arrow-left" size="16" /> Return to
-            overview</router-link>
+          <router-link class="return-link" to="/support-inquiries">
+            <v-icon icon="mdi-message-text-outline" size="16" /> View conversation and expert replies
+          </router-link>
         </div>
       </section>
     </div>

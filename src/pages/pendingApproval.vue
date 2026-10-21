@@ -26,11 +26,25 @@
     registration_snapshot_id: string | null
     status_at_event: string
     current_approval_status: string
+    correction_fields: string[]
   }
   const rejectionHistory = ref<RejectionHistoryRecord[]>([])
   const rejectionHistoryLoading = ref(false)
   const rejectionHistoryError = ref('')
   const isHistoryRoute = computed(() => route.path === '/rejection-history')
+  const correctionFieldLabels: Record<string, string> = {
+    first_name: 'First name',
+    last_name: 'Last name',
+    phone_number: 'Phone number',
+    department: 'Department',
+    job_title: 'Job title',
+    employee_id: 'Employee ID',
+    employment_type: 'Employment type',
+    office_location: 'Office location',
+    date_of_joining: 'Date of joining',
+    manager_name: "Manager's name",
+    bio: 'Short introduction',
+  }
   let statusRefreshTimer: number | undefined
 
   onMounted(() => {
@@ -104,7 +118,7 @@
     }
 
     try {
-      const { data, error: historyError } = await supabase.rpc('northstar_list_my_employee_rejection_history')
+      const { data, error: historyError } = await supabase.rpc('northstar_list_my_employee_rejection_history_with_corrections')
       if (historyError) {
         rejectionHistoryError.value = `Could not load your rejection history: ${historyError.message}`
         console.error(rejectionHistoryError.value, historyError)
@@ -198,6 +212,9 @@
             <span v-if="record.rejected_by_email">Reviewed by {{ record.rejected_by_email }}</span>
           </div>
           <p><strong>Reason:</strong> {{ record.rejection_reason }}</p>
+          <p><strong>Required corrections:</strong>
+            {{ record.correction_fields.map(field => correctionFieldLabels[field] ?? field).join(', ') || 'No fields recorded' }}
+          </p>
           <small>Current registration status: {{ record.current_approval_status }}</small>
         </article>
       </section>

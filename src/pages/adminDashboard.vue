@@ -74,10 +74,27 @@ type RejectionHistoryRecord = {
   employee_name: string
   employee_email: string
   rejection_reason: string
+  correction_fields: string[]
+  registration_snapshot_id: string | null
   rejected_by_email: string
   rejected_at: string
   current_approval_status: string
 }
+const correctionFieldOptions = [
+  { value: 'first_name', label: 'First name' },
+  { value: 'last_name', label: 'Last name' },
+  { value: 'phone_number', label: 'Phone number' },
+  { value: 'department', label: 'Department' },
+  { value: 'job_title', label: 'Job title' },
+  { value: 'employee_id', label: 'Employee ID' },
+  { value: 'employment_type', label: 'Employment type' },
+  { value: 'office_location', label: 'Office location' },
+  { value: 'date_of_joining', label: 'Date of joining' },
+  { value: 'manager_name', label: "Manager's name" },
+  { value: 'bio', label: 'Short introduction' },
+] as const
+const correctionFieldLabel = (field: string) =>
+  correctionFieldOptions.find(option => option.value === field)?.label ?? field
 const supportInquiries = ref<SupportInquiry[]>([])
 const selectedSupportInquiry = ref<SupportInquiry | null>(null)
 const supportMessages = ref<SupportMessage[]>([])
@@ -88,6 +105,10 @@ const supportError = ref('')
 const rejectionHistory = ref<RejectionHistoryRecord[]>([])
 const rejectionHistoryLoading = ref(false)
 const rejectionHistoryError = ref('')
+const rejectionHistorySearch = ref('')
+const emailVerificationSearch = ref('')
+const supportSearch = ref('')
+const selectedRejectionHistory = ref<RejectionHistoryRecord | null>(null)
 const employeePhotoUrl = ref('')
 const employeePhotoPreviewOpen = ref(false)
 const employeePhotoLoading = ref(false)
@@ -104,6 +125,7 @@ const registrationSearch = ref('')
 const selectedEmployee = ref<EmployeeRegistrationRecord | null>(null)
 const rejectEmployee = ref<EmployeeRegistrationRecord | null>(null)
 const rejectionReason = ref('')
+const rejectionCorrectionFields = ref<string[]>([])
 const rejectionDialogError = ref('')
 const verificationRecordsLoading = ref(false)
 const verificationRecordsError = ref('')
@@ -112,6 +134,21 @@ const filteredRegistrations = computed(() => employeeRecords.value
   .filter(employee => `${employee.first_name} ${employee.last_name} ${employee.email} ${employee.department ?? ''} ${employee.job_title ?? ''}`
     .toLowerCase()
     .includes(registrationSearch.value.trim().toLowerCase())))
+const filteredRejectionHistory = computed(() => rejectionHistory.value.filter(record =>
+  `${record.employee_name} ${record.employee_email} ${record.rejection_reason} ${record.current_approval_status}`
+    .toLowerCase().includes(rejectionHistorySearch.value.trim().toLowerCase())))
+const filteredEmailVerificationRecords = computed(() => emailVerificationRecords.value.filter(record =>
+  `${record.first_name} ${record.last_name} ${record.email} ${record.email_verification_status}`
+    .toLowerCase().includes(emailVerificationSearch.value.trim().toLowerCase())))
+const filteredSupportInquiries = computed(() => supportInquiries.value.filter(inquiry =>
+  `${inquiry.full_name} ${inquiry.email} ${inquiry.topic} ${inquiry.status}`
+    .toLowerCase().includes(supportSearch.value.trim().toLowerCase())))
+const needsLegacyCorrectionRequirements = (employee: EmployeeRegistrationRecord) => {
+  const latestEvent = rejectionHistory.value.find(record => record.employee_id === employee.user_id)
+  return employee.approval_status === 'rejected'
+    && Array.isArray(latestEvent?.correction_fields)
+    && latestEvent.correction_fields.length === 0
+}
 async function loadEmployeeRecords() {
   if (!auth.isAdmin) {
     approvalError.value = 'Only the confirmed Northstar administrator account can access registration approvals.'
@@ -205,7 +242,7 @@ async function loadRejectionHistory() {
   rejectionHistoryLoading.value = true
   rejectionHistoryError.value = ''
   try {
-    const { data, error } = await supabase.rpc('northstar_admin_list_employee_rejection_history')
+    const { data, error } = await supabase.rpc('northstar_admin_list_employee_rejection_history_with_correction')
     if (error) {
       rejectionHistoryError.value = `Could not load rejection history: ${error.message}`
       console.error(rejectionHistoryError.value, error)
@@ -286,6 +323,7 @@ function formatRecordDate(value: string | null) {
 function openRejectionDialog(employee: EmployeeRegistrationRecord) {
   rejectEmployee.value = employee
   rejectionReason.value = ''
+  rejectionCorrectionFields.value = []
   rejectionDialogError.value = ''
 }
 
@@ -298,6 +336,10 @@ async function setEmployeeApproval(employee: EmployeeRegistrationRecord, approva
     rejectionDialogError.value = 'Enter a rejection reason before confirming.'
     return
   }
+  if (approvalStatus === 'rejected' && rejectionCorrectionFields.value.length === 0) {
+    rejectionDialogError.value = 'Select at least one field the employee must correct.'
+    return
+  }
   updatingEmployeeId.value = employee.user_id
   approvalError.value = ''
   try {
@@ -305,6 +347,7 @@ async function setEmployeeApproval(employee: EmployeeRegistrationRecord, approva
       p_user_id: employee.user_id,
       p_approval_status: approvalStatus,
       p_rejection_reason: approvalStatus === 'rejected' ? rejectionReason.value.trim() : null,
+      p_correction_fields: approvalStatus === 'rejected' ? rejectionCorrectionFields.value : [],
     })
     if (error) {
       approvalError.value = `Could not update employee approval: ${error.message}`
@@ -313,6 +356,7 @@ async function setEmployeeApproval(employee: EmployeeRegistrationRecord, approva
     }
     rejectEmployee.value = null
     rejectionReason.value = ''
+    rejectionCorrectionFields.value = []
     await loadEmployeeRecords()
     await loadRejectionHistory()
   } catch (error) {
@@ -419,6 +463,9 @@ onMounted(() => {
             <button v-if="employee.approval_status === 'pending'" class="reject-button"
               :disabled="Boolean(updatingEmployeeId)" type="button"
               @click="openRejectionDialog(employee)">Reject</button>
+            <button v-if="needsLegacyCorrectionRequirements(employee)" class="reject-button"
+              :disabled="Boolean(updatingEmployeeId)" type="button"
+              @click="openRejectionDialog(employee)">Set correction requirements</button>
           </div>
         </article>
       </div>
@@ -437,17 +484,49 @@ onMounted(() => {
       <p v-if="rejectionHistoryError" class="approval-error" role="alert">{{ rejectionHistoryError }}</p>
       <p v-else-if="rejectionHistoryLoading" class="approval-empty">Loading historical rejections…</p>
       <p v-else-if="rejectionHistory.length === 0" class="approval-empty">No rejection history is recorded yet.</p>
-      <div v-else class="approval-list">
-        <article v-for="record in rejectionHistory" :key="record.id" class="approval-item">
+      <div v-else>
+        <div class="admin-search-row">
+          <input v-model="rejectionHistorySearch" aria-label="Search rejection history" placeholder="Search employee, email, reason, or status">
+          <button class="secondary-action" :disabled="!rejectionHistorySearch" type="button" @click="rejectionHistorySearch = ''">Clear</button>
+        </div>
+        <p v-if="filteredRejectionHistory.length === 0" class="approval-empty">No historical rejections match this search.</p>
+        <div v-else class="approval-list">
+        <article v-for="record in filteredRejectionHistory" :key="record.id" class="approval-item">
           <div class="approval-details">
             <strong>{{ record.employee_name }}</strong>
             <span>{{ record.employee_email }} · Current status: {{ record.current_approval_status }}</span>
             <small>Rejected by {{ record.rejected_by_email }} · {{ formatRecordDate(record.rejected_at) }}</small>
             <small class="rejection-reason">Reason: {{ record.rejection_reason }}</small>
+            <small>Required corrections: {{ record.correction_fields.map(correctionFieldLabel).join(', ') || 'No fields recorded' }}</small>
           </div>
+          <button class="details-button" type="button" @click="selectedRejectionHistory = record">View Details</button>
         </article>
+        </div>
       </div>
     </section>
+
+    <v-dialog max-width="700" :model-value="Boolean(selectedRejectionHistory)"
+      @update:model-value="!$event && (selectedRejectionHistory = null)">
+      <v-card v-if="selectedRejectionHistory" class="employee-detail-dialog">
+        <v-card-title class="dialog-heading">
+          <span>Historical rejection details</span>
+          <v-btn aria-label="Close rejection details" icon="mdi-close" variant="text" @click="selectedRejectionHistory = null" />
+        </v-card-title>
+        <v-card-text>
+          <dl class="rejection-detail-list">
+            <div><dt>Employee</dt><dd>{{ selectedRejectionHistory.employee_name }}</dd></div>
+            <div><dt>Email</dt><dd>{{ selectedRejectionHistory.employee_email }}</dd></div>
+            <div><dt>Historical status</dt><dd>Rejected</dd></div>
+            <div><dt>Current status</dt><dd>{{ selectedRejectionHistory.current_approval_status }}</dd></div>
+            <div><dt>Rejected at</dt><dd>{{ formatRecordDate(selectedRejectionHistory.rejected_at) }}</dd></div>
+            <div><dt>Administrator</dt><dd>{{ selectedRejectionHistory.rejected_by_email || 'Unavailable in recorded history' }}</dd></div>
+          </dl>
+          <p class="detail-rejection"><strong>Rejection reason:</strong> {{ selectedRejectionHistory.rejection_reason }}</p>
+          <p><strong>Required corrections:</strong> {{ selectedRejectionHistory.correction_fields.map(correctionFieldLabel).join(', ') || 'No fields recorded' }}</p>
+          <p><strong>Registration snapshot ID:</strong> {{ selectedRejectionHistory.registration_snapshot_id || 'Unavailable' }}</p>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
 
     <v-dialog max-width="760" :model-value="Boolean(selectedEmployee)"
       @update:model-value="!$event && (selectedEmployee = null)">
@@ -628,9 +707,16 @@ onMounted(() => {
         <v-card-text>
           <p>Enter the reason that will be saved and shown to {{ rejectEmployee.first_name }} {{
             rejectEmployee.last_name
-            }}.</p>
+            }}, then select every field they must change before resubmitting.</p>
           <label class="rejection-label" for="rejection-reason">Rejection reason <span>*</span></label>
           <textarea id="rejection-reason" v-model="rejectionReason" maxlength="2000" rows="5" />
+          <fieldset class="correction-fields">
+            <legend>Fields requiring correction <span>*</span></legend>
+            <label v-for="field in correctionFieldOptions" :key="field.value">
+              <input v-model="rejectionCorrectionFields" :value="field.value" type="checkbox">
+              {{ field.label }}
+            </label>
+          </fieldset>
           <p v-if="rejectionDialogError" class="approval-error" role="alert">{{ rejectionDialogError }}</p>
         </v-card-text>
 
@@ -639,7 +725,7 @@ onMounted(() => {
           <v-btn :disabled="updatingEmployeeId === rejectEmployee.user_id" variant="text"
             @click="rejectEmployee = null">Cancel</v-btn>
 
-          <v-btn color="error" :disabled="!rejectionReason.trim()"
+          <v-btn color="error" :disabled="!rejectionReason.trim() || rejectionCorrectionFields.length === 0"
             :loading="updatingEmployeeId === rejectEmployee.user_id"
             @click="setEmployeeApproval(rejectEmployee, 'rejected')">{{ updatingEmployeeId === rejectEmployee.user_id ?
               'Rejecting…' : 'Confirm rejection' }}</v-btn>
@@ -664,6 +750,12 @@ onMounted(() => {
       <p v-else-if="verificationRecordsLoading" class="approval-empty">Loading email verification records…</p>
       <p v-else-if="emailVerificationRecords.length === 0" class="approval-empty">No user accounts were found.</p>
 
+      <div v-else>
+      <div class="admin-search-row">
+        <input v-model="emailVerificationSearch" aria-label="Search email verification records" placeholder="Search name, email, or verification status">
+        <button class="secondary-action" :disabled="!emailVerificationSearch" type="button" @click="emailVerificationSearch = ''">Clear</button>
+      </div>
+      <p v-if="filteredEmailVerificationRecords.length === 0" class="approval-empty">No accounts match this search.</p>
       <div v-else class="table-scroll verification-table">
         <table class="data-table">
 
@@ -680,7 +772,7 @@ onMounted(() => {
           </thead>
 
           <tbody>
-            <tr v-for="record in emailVerificationRecords" :key="record.user_id">
+            <tr v-for="record in filteredEmailVerificationRecords" :key="record.user_id">
               <td>{{ `${record.first_name} ${record.last_name}`.trim() || '—' }}</td>
 
               <td>{{ record.email }}</td>
@@ -700,9 +792,9 @@ onMounted(() => {
         </table>
       </div>
 
-      <div v-if="!verificationRecordsLoading && !verificationRecordsError && emailVerificationRecords.length > 0"
+      <div v-if="filteredEmailVerificationRecords.length > 0"
         class="verification-cards">
-        <article v-for="record in emailVerificationRecords" :key="record.user_id" class="verification-card">
+        <article v-for="record in filteredEmailVerificationRecords" :key="record.user_id" class="verification-card">
           <div class="verification-card-heading">
             <div>
               <strong>{{ `${record.first_name} ${record.last_name}`.trim() || 'Name unavailable' }}</strong>
@@ -730,6 +822,7 @@ onMounted(() => {
           </dl>
         </article>
       </div>
+      </div>
     </section>
 
     <section class="approval-panel surface-card">
@@ -744,13 +837,20 @@ onMounted(() => {
       <p v-if="supportError" class="approval-error" role="alert">{{ supportError }}</p>
       <p v-else-if="supportLoading" class="approval-empty">Loading support inquiries…</p>
       <p v-else-if="supportInquiries.length === 0" class="approval-empty">No support inquiries have been submitted.</p>
-      <div v-else class="approval-list">
-        <article v-for="inquiry in supportInquiries" :key="inquiry.id" class="approval-item">
+      <div v-else>
+        <div class="admin-search-row">
+          <input v-model="supportSearch" aria-label="Search support inquiries" placeholder="Search employee, email, topic, or status">
+          <button class="secondary-action" :disabled="!supportSearch" type="button" @click="supportSearch = ''">Clear</button>
+        </div>
+        <p v-if="filteredSupportInquiries.length === 0" class="approval-empty">No support inquiries match this search.</p>
+        <div v-else class="approval-list">
+        <article v-for="inquiry in filteredSupportInquiries" :key="inquiry.id" class="approval-item">
           <div class="approval-details"><strong>{{ inquiry.full_name }} · {{ inquiry.topic }}</strong><span>{{
               inquiry.email
               }} · {{ inquiry.status }}</span><small>{{ formatRecordDate(inquiry.created_at) }}</small></div>
           <button class="details-button" type="button" @click="openSupportInquiry(inquiry)">Open inquiry</button>
         </article>
+        </div>
       </div>
     </section>
 
@@ -1124,6 +1224,32 @@ onMounted(() => {
   color: var(--ns-text-d35f46, #d35f46);
 }
 
+.correction-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 14px;
+  margin-top: 16px;
+  border: 1px solid var(--ns-border-e3e9dc, #e3e9dc);
+  padding: 12px;
+}
+
+.correction-fields legend {
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.correction-fields label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.correction-fields input {
+  accent-color: var(--ns-primary);
+}
+
 .employee-detail-dialog textarea {
   width: 100%;
   border: 1px solid var(--ns-border-dce4d9, #dce4d9);
@@ -1423,6 +1549,12 @@ onMounted(() => {
   font-size: 9px;
   line-height: 1.6;
 }
+
+.admin-search-row { display: flex; gap: 8px; margin: 12px 0; }
+.admin-search-row input { min-width: 0; flex: 1; border: 1px solid var(--ns-border); border-radius: 8px; padding: 9px 11px; background: var(--ns-surface-raised); color: var(--ns-text-primary); }
+.rejection-detail-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.rejection-detail-list dt { color: var(--ns-text-secondary); font-size: 10px; }
+.rejection-detail-list dd { margin: 4px 0 0; color: var(--ns-text-primary); font-size: 12px; overflow-wrap: anywhere; }
 
 @media (max-width: 960px) {
   .admin-stats {

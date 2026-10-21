@@ -1,39 +1,53 @@
 <script setup lang="ts">
   import { computed, nextTick, ref, watch } from 'vue'
-  import { useRoute } from 'vue-router'
+  import { useRoute, useRouter } from 'vue-router'
   import { useWorkspaceStore } from '@/stores/workspace'
 
   const route = useRoute()
+  const router = useRouter()
   const workspace = useWorkspaceStore()
   const search = ref('')
   const draft = ref('')
-  const selectedId = ref((typeof route.query.conversation === 'string' ? route.query.conversation : '') || workspace.conversations.find(item => item.employeeId === route.query.employee)?.id || workspace.conversations[0]?.id || '')
+  const selectedId = ref(typeof route.query.conversation === 'string' ? route.query.conversation : '')
   const startingEmployeeId = ref('')
   const messageList = ref<HTMLElement | null>(null)
   const selectedConversation = computed(() => workspace.conversations.find(item => item.id === selectedId.value))
   const filteredConversations = computed(() => workspace.conversations.filter(item => item.name.toLowerCase().includes(search.value.trim().toLowerCase())))
 
-  watch(() => [route.query.conversation, route.query.employee, workspace.conversations.length], async () => {
+  watch(() => [route.query.conversation, route.query.employee, workspace.conversations.length, workspace.employees.length], async () => {
     const conversationId = typeof route.query.conversation === 'string' ? route.query.conversation : ''
-    if (conversationId && workspace.conversations.some(item => item.id === conversationId)) {
-      selectedId.value = conversationId
+    if (conversationId) {
+      if (workspace.conversations.some(item => item.id === conversationId)) selectedId.value = conversationId
       return
     }
+
     const employeeId = typeof route.query.employee === 'string' ? route.query.employee : ''
-    if (!employeeId) return
+    if (!employeeId) {
+      selectedId.value = ''
+      return
+    }
+
     const match = workspace.conversations.find(item => item.employeeId === employeeId)
     if (match) {
       selectedId.value = match.id
+      await router.replace({ path: '/messages', query: { conversation: match.id } })
       return
     }
+
     if (startingEmployeeId.value === employeeId) return
     startingEmployeeId.value = employeeId
-    const id = await workspace.startConversation(employeeId)
-    if (id) selectedId.value = id
-    startingEmployeeId.value = ''
+    try {
+      const id = await workspace.startConversation(employeeId)
+      if (id && route.query.employee === employeeId) {
+        selectedId.value = id
+        await router.replace({ path: '/messages', query: { conversation: id } })
+      }
+    } finally {
+      startingEmployeeId.value = ''
+    }
   }, { immediate: true })
 
-  watch(selectedId, conversationId => {
+  watch(() => selectedConversation.value?.id, conversationId => {
     if (conversationId) void workspace.markConversationRead(conversationId)
   }, { immediate: true })
 
@@ -44,6 +58,14 @@
 
   function selectConversation (id: string) {
     selectedId.value = id
+    void router.push({ path: '/messages', query: { conversation: id } })
+  }
+
+  function closeConversation () {
+    selectedId.value = ''
+    if (route.query.conversation || route.query.employee) {
+      void router.replace({ path: '/messages' })
+    }
   }
 
   async function send () {
@@ -58,7 +80,7 @@
   <main>
     <header class="page-heading"><div><p class="eyebrow">YOUR INBOX</p><h1>Messages</h1><p>Keep conversations moving with direct, thoughtful communication.</p></div><router-link class="secondary-action" to="/employees"><v-icon icon="mdi-plus" size="17" /> New message</router-link></header>
 
-    <section class="messaging-layout surface-card">
+    <section class="messaging-layout surface-card" :class="{ 'has-selected-conversation': Boolean(selectedConversation) }">
       <aside class="conversation-sidebar">
         <div class="inbox-heading"><strong>Inbox</strong><span>{{ workspace.conversations.length }}</span></div>
         <input v-model="search" aria-label="Search conversations" class="field-control conversation-search" placeholder="Search conversations">
@@ -75,11 +97,17 @@
           <span class="conversation-meta"><small>{{ conversation.updatedAt }}</small><b v-if="conversation.unread">{{ conversation.unread }}</b></span>
         </button>
 
-        <div v-if="filteredConversations.length === 0" class="conversation-empty">No conversations match.</div>
+        <div v-if="filteredConversations.length === 0" class="conversation-empty">
+          <template v-if="workspace.conversations.length">No conversations match.</template>
+          <template v-else>No conversations yet. Browse colleagues to start one.</template>
+        </div>
       </aside>
 
       <section v-if="selectedConversation" class="chat-panel">
         <header class="chat-header">
+          <button class="conversation-back" type="button" @click="closeConversation">
+            <v-icon icon="mdi-arrow-left" size="18" /> Back to inbox
+          </button>
           <span class="conversation-avatar large" :style="{ background: selectedConversation?.color }">{{ selectedConversation?.initials }}<i :class="{ online: selectedConversation?.online }" /></span>
           <span><strong>{{ selectedConversation?.name }}</strong><small>{{ selectedConversation?.online ? 'Online now' : selectedConversation?.title }}</small></span>
           <a class="chat-email" :href="`mailto:${workspace.employees.find(item => item.id === selectedConversation?.employeeId)?.email}`"><v-icon icon="mdi-email-outline" size="19" /></a>
@@ -101,13 +129,13 @@
         </form>
       </section>
 
-      <section v-else class="chat-empty empty-state"><v-icon icon="mdi-message-text-outline" size="38" /><h2>Your conversations</h2><p>Select a conversation to read and reply, or find a colleague to start a new one.</p><router-link class="secondary-action" to="/employees">Browse colleagues</router-link></section>
+      <section v-else class="chat-empty empty-state"><v-icon icon="mdi-message-text-outline" size="38" /><h2>Your messages</h2><p>Select an employee to open a conversation.</p><router-link class="secondary-action" to="/employees">Browse colleagues</router-link></section>
     </section>
   </main>
 </template>
 
 <style scoped>
-.messaging-layout { display: grid; min-height: 570px; grid-template-columns: 310px 1fr; overflow: hidden; }
+.messaging-layout { display: grid; min-height: 570px; grid-template-columns: 310px minmax(0, 1fr); overflow: hidden; }
 .conversation-sidebar { border-right: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
 .inbox-heading { display: flex; align-items: center; gap: 9px; padding: 17px 17px 12px; color: var(--ns-text-18352d, #18352d); font-size: 13px; }
 .inbox-heading span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: var(--ns-bg-eef2e8, #eef2e8); color: var(--ns-text-60776b, #60776b); font-size: 9px; }
@@ -125,6 +153,9 @@
 .conversation-empty { padding: 20px; color: var(--ns-text-829187, #829187); font-size: 10px; text-align: center; }
 .chat-panel { display: flex; min-width: 0; flex-direction: column; }
 .chat-header { display: flex; min-height: 69px; align-items: center; gap: 11px; padding: 12px 18px; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
+.conversation-back { display: inline-flex; min-height: 36px; align-items: center; gap: 5px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; padding: 0 9px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; font-size: 10px; }
+.conversation-back:hover { background: var(--ns-bg-f1f4eb, #f1f4eb); }
+.conversation-back:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
 .chat-header > span:nth-child(2) { display: grid; gap: 4px; }
 .chat-header strong { color: var(--ns-text-18352d, #18352d); font-size: 11px; }
 .chat-header small { color: var(--ns-text-829187, #829187); font-size: 9px; }
@@ -147,6 +178,11 @@
 @media (max-width: 760px) {
   .messaging-layout { min-height: 620px; grid-template-columns: 1fr; }
   .conversation-sidebar { max-height: 220px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
+  .messaging-layout.has-selected-conversation .conversation-sidebar { display: none; }
+  .messaging-layout.has-selected-conversation .chat-panel { min-height: 540px; }
+  .chat-header { flex-wrap: wrap; gap: 9px; padding: 12px; }
+  .conversation-back { flex: 0 0 auto; }
+  .chat-email { margin-left: auto; }
   .chat-panel { min-height: 390px; }
 }
 </style>
