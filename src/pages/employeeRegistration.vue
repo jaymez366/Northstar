@@ -44,11 +44,23 @@
       departmentLoading.value = false
       return
     }
+    if (!auth.isAuthenticated || !auth.emailVerified) {
+      departmentError.value = 'Sign in with your email-confirmed Northstar account to load departments.'
+      departmentLoading.value = false
+      return
+    }
     try {
       const { data, error: loadError } = await supabase.from('departments').select('id,name').order('name')
-      if (loadError) throw loadError
+      if (loadError) {
+        departmentError.value = 'Northstar could not load departments. Please try again or contact the administrator.'
+        console.error('Could not load registration departments from Supabase', loadError)
+        return
+      }
       departmentRecords.value = (data ?? []).filter(row => typeof row.id === 'string' && typeof row.name === 'string')
-      if (departmentRecords.value.length === 0) departmentError.value = 'No departments are available. Contact the Northstar administrator.'
+      if (departmentRecords.value.length === 0) {
+        departmentError.value = 'No departments are visible to this account. The administrator may need to check department read access.'
+        console.warn('The authenticated department query returned no visible rows; check the departments SELECT policy and role helper.')
+      }
     } catch (loadError) {
       departmentError.value = 'Northstar could not load the available departments. Please try again.'
       console.error('Could not load registration departments', loadError)

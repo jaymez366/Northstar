@@ -159,7 +159,9 @@ function requiresEmployeeProfile (to: RouteLocationNormalized, auth: AuthStore) 
 }
 
 function needsProfileLoad (to: RouteLocationNormalized, auth: AuthStore) {
-  return requiresEmployeeProfile(to, auth) && !auth.profileLoaded
+  return requiresEmployeeProfile(to, auth)
+    && !auth.profileLoaded
+    && !to.meta.allowIncompleteRegistration
 }
 
 function needsRegistration (to: RouteLocationNormalized, auth: AuthStore) {

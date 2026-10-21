@@ -100,6 +100,7 @@ export const useAuthStore = defineStore('auth', () => {
   const registrationSubmissionSucceeded = ref(false)
   const profile = ref<UserProfile>(emptyProfile())
   const profileLoaded = ref(false)
+  const profileUnavailable = ref(false)
   const employeeRegistrationComplete = computed(() => profile.value.registrationCompleted
     && Boolean(
       profile.value.firstName.trim()
@@ -197,6 +198,7 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
     profileLoaded.value = false
+    profileUnavailable.value = false
     // Read the signed-in user's canonical profile row under the existing RLS
     // policies. The admin registration RPC reads profiles.registration_completed
     // directly, so login routing must use that same source of truth.
@@ -216,7 +218,8 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     if (!ownProfile) {
-      errorMessage.value = 'Your Supabase account has no readable employee profile. Check the profile row and its row-level security policy.'
+      profileUnavailable.value = true
+      errorMessage.value = 'No readable Northstar employee profile was found. If this is a new employee account, continue with registration.'
       return
     }
 
@@ -265,6 +268,7 @@ export const useAuthStore = defineStore('auth', () => {
     userFirstName.value = profile.value.firstName
     isAdmin.value = isDesignatedAdministrator()
     profileLoaded.value = true
+    profileUnavailable.value = false
     errorMessage.value = avatarLoadError
   }
 
@@ -340,7 +344,7 @@ export const useAuthStore = defineStore('auth', () => {
       return false
     }
     await loadProfile(data.user.id)
-    if (!profileLoaded.value && !isAdmin.value) {
+    if (!profileLoaded.value && !profileUnavailable.value && !isAdmin.value) {
       return false
     }
     return true
@@ -613,6 +617,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (userId.value && userId.value !== user.id) {
       profile.value = emptyProfile()
       profileLoaded.value = false
+      profileUnavailable.value = false
       registrationSubmissionSucceeded.value = false
     }
     userId.value = user.id
@@ -637,6 +642,7 @@ export const useAuthStore = defineStore('auth', () => {
     userEmail.value = ''
     userFirstName.value = ''
     profileLoaded.value = false
+    profileUnavailable.value = false
     profile.value = emptyProfile()
     isPasswordRecovery.value = false
     registrationSubmissionSucceeded.value = false
