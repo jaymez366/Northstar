@@ -61,7 +61,7 @@
         }
         if (result.requiresEmailConfirmation) {
           signupConfirmationEmail.value = email.value.trim()
-          noticeMessage.value = `A verification email was requested for ${signupConfirmationEmail.value}. Click the link in that email to verify your account before signing in.`
+          noticeMessage.value = 'Account created successfully! Please check your email and click the verification link to verify your email address before signing in.'
           isSignup.value = false
           password.value = ''
           confirmPassword.value = ''
@@ -188,6 +188,10 @@
           <h2 id="login-title">{{ isSignup ? 'Create account' : 'Sign in' }}</h2>
         </div>
 
+        <p v-if="noticeMessage && signupConfirmationEmail" class="success-message" role="status">
+          <v-icon icon="mdi-check-circle-outline" size="16" /> {{ noticeMessage }}
+        </p>
+
         <form @submit.prevent="submitForm">
           <template v-if="isSignup">
             <label for="full-name">Full name</label>
@@ -265,7 +269,7 @@
             :to="{ path: '/verify-email', query: { email: signupConfirmationEmail || email.trim() } }"
           >Resend confirmation email</router-link>
 
-          <p v-if="noticeMessage" class="success-message" role="status">
+          <p v-if="noticeMessage && !signupConfirmationEmail" class="success-message" role="status">
             <v-icon icon="mdi-check-circle-outline" size="16" /> {{ noticeMessage }}
           </p>
 

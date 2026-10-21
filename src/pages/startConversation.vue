@@ -1,10 +1,58 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { reactive, ref } from 'vue'
+  import { useAuthStore } from '@/stores/auth'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
+  const auth = useAuthStore()
   const submitted = ref(false)
+  const submitting = ref(false)
+  const error = ref('')
+  const inquiry = reactive({
+    email: auth.userEmail,
+    fullName: `${auth.profile.firstName} ${auth.profile.lastName}`.trim(),
+    topic: '',
+    message: '',
+  })
 
-  function submitForm () {
-    submitted.value = true
+  async function submitForm () {
+    if (submitting.value || submitted.value) return
+    error.value = ''
+    inquiry.email = auth.userEmail
+    inquiry.fullName = inquiry.fullName.trim()
+    inquiry.message = inquiry.message.trim()
+    if (!auth.isAuthenticated || !auth.emailVerified) {
+      error.value = 'Sign in with a verified Northstar account before sending an inquiry.'
+      return
+    }
+    if (!inquiry.fullName || !inquiry.topic || !inquiry.message) {
+      error.value = 'Enter your name, choose a focus, and add a message before submitting.'
+      return
+    }
+    if (!isSupabaseConfigured || !supabase) {
+      error.value = 'Northstar could not connect to the support inbox. Please try again later.'
+      return
+    }
+
+    submitting.value = true
+    try {
+      const { error: submitError } = await supabase.rpc('northstar_submit_support_inquiry', {
+        p_email: inquiry.email,
+        p_name: inquiry.fullName,
+        p_topic: inquiry.topic,
+        p_message: inquiry.message,
+      })
+      if (submitError) {
+        error.value = 'Your inquiry could not be saved. Please review the form and try again.'
+        console.error('Northstar support inquiry submission failed', submitError)
+        return
+      }
+      submitted.value = true
+    } catch (submitError) {
+      error.value = 'Northstar could not submit your inquiry. Check your connection and try again.'
+      console.error('Northstar support inquiry request failed', submitError)
+    } finally {
+      submitting.value = false
+    }
   }
 </script>
 
@@ -39,30 +87,39 @@
           <form @submit.prevent="submitForm">
             <label>Work email
               <input
-                placeholder="you@company.com"
+                v-model="inquiry.email"
+                autocomplete="email"
+                readonly
                 required
                 type="email"
               ></label>
 
             <label>Your name <input
+              v-model="inquiry.fullName"
+              autocomplete="name"
               placeholder="Alex Morgan"
+              maxlength="160"
               required
               type="text"
             ></label>
 
-            <label>What can we help with?<select required>
-              <option disabled selected value="">Choose a focus</option>
+            <label>What can we help with?<select v-model="inquiry.topic" required>
+              <option disabled value="">Choose a focus</option>
               <option>Employee communication</option>
               <option>Disaster management</option>
               <option>Both</option>
             </select></label>
 
-            <label>Anything else we should know?
-              <textarea placeholder="A sentence or two is plenty." rows="3" />
+            <label>Your message <span aria-hidden="true">*</span>
+              <textarea v-model="inquiry.message" maxlength="5000" placeholder="How can Northstar help your team?" required rows="4" />
             </label>
 
-            <button class="submit-button" type="submit">
-              Send inquiry <v-icon icon="mdi-arrow-top-right" size="18" />
+            <p v-if="error" class="inquiry-error" role="alert">{{ error }}</p>
+
+            <button class="submit-button" :disabled="submitting || submitted" type="submit">
+              {{ submitting ? 'Sending inquiry…' : 'Send inquiry' }}
+              <v-progress-circular v-if="submitting" indeterminate size="18" width="2" />
+              <v-icon v-else icon="mdi-arrow-top-right" size="18" />
             </button>
           </form>
 
@@ -82,8 +139,7 @@
           <h2>We’ll be in touch<br><em>soon.</em></h2>
 
           <p>
-            Thanks for reaching out. A member of the Northstar team will follow
-            up within one business day.
+            Your message has been saved. A Northstar team member will follow up with you.
           </p>
 
           <router-link
@@ -109,15 +165,11 @@
 :global(*) {
   box-sizing: border-box;
 }
-:global(body) {
-  margin: 0;
-  background: var(--ns-bg-f3f5ef, #f3f5ef);
-  color: var(--ns-text-10231d, #10231d);
-  font-family: "Manrope", sans-serif;
-}
 .conversation-page {
   min-height: 100vh;
-  background: var(--ns-bg-f3f5ef, #f3f5ef);
+  background: var(--ns-page);
+  color: var(--ns-text-primary);
+  font-family: "Manrope", sans-serif;
 }
 .container {
   width: min(1160px, calc(100% - 64px));
@@ -421,5 +473,84 @@ textarea {
   .form-panel {
     box-shadow: 8px 9px 0 var(--ns-shadow-dce7d5, #dce7d5);
   }
+}
+.conversation-page {
+  background: var(--ns-page);
+  color: var(--ns-text-primary);
+}
+.conversation-intro h1,
+.response-note { color: var(--ns-text-primary); }
+.conversation-intro h1 em,
+.success-state h2 em,
+.section-overline { color: var(--ns-primary); }
+.intro-copy { color: var(--ns-text-secondary); }
+.response-icon,
+.success-icon {
+  border: 1px solid var(--ns-blue-border);
+  background: var(--ns-blue-soft);
+  color: var(--ns-primary);
+}
+.form-panel {
+  border: 1px solid var(--ns-border);
+  border-radius: 16px;
+  background: var(--ns-surface);
+  color: var(--ns-text-primary);
+  box-shadow: 0 16px 38px rgb(15 23 42 / 9%);
+}
+.form-heading { border-bottom-color: var(--ns-border); }
+.form-heading p,
+label { color: var(--ns-text-primary); }
+.form-heading span,
+.privacy-note,
+.response-note small { color: var(--ns-text-secondary); }
+.input,
+input,
+select,
+textarea {
+  border-color: var(--ns-border);
+  background-color: var(--ns-surface-raised);
+  color: var(--ns-text-primary);
+}
+input,
+select,
+textarea {
+  border: 1px solid var(--ns-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--ns-primary);
+  outline: 3px solid color-mix(in srgb, var(--ns-primary) 18%, transparent);
+}
+input::placeholder,
+textarea::placeholder { color: var(--ns-text-secondary); }
+select option { background: var(--ns-surface); color: var(--ns-text-primary); }
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ns-primary) 50%),
+    linear-gradient(135deg, var(--ns-primary) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 18px, calc(100% - 5px) 18px;
+  background-size: 8px 8px, 8px 8px;
+  background-repeat: no-repeat;
+}
+.submit-button {
+  border-radius: 8px;
+  background: var(--ns-primary);
+  color: #fff;
+  box-shadow: 0 8px 18px rgb(37 99 235 / 18%);
+}
+.submit-button:hover:not(:disabled) { background: var(--ns-primary-hover); }
+.submit-button:disabled { cursor: wait; opacity: .7; }
+.inquiry-error { color: var(--ns-danger-text); font-size: 12px; line-height: 1.5; }
+.success-state h2,
+.success-state > p:not(.section-overline) { color: var(--ns-text-primary); }
+.return-link,
+.back-link { color: var(--ns-primary); }
+.conversation-footer { border-top-color: var(--ns-border); color: var(--ns-text-secondary); }
+@media (max-width: 800px) {
+  .form-panel { box-shadow: 0 12px 28px rgb(15 23 42 / 8%); }
 }
 </style>

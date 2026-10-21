@@ -11,6 +11,7 @@
   const message = ref('')
   const error = ref('')
   const callbackState = ref<'idle' | 'checking' | 'success' | 'error'>('idle')
+  const continueBusy = ref(false)
   const isCallback = route.path === '/auth/callback'
 
   onMounted(() => {
@@ -34,6 +35,12 @@
       return
     }
 
+    if (!auth.emailConfirmationCallbackDetected) {
+      callbackState.value = 'error'
+      error.value = 'This confirmation link is missing its verification details. Request a new confirmation email and try again.'
+      return
+    }
+
     if (!auth.isAuthenticated || !auth.emailVerified) {
       callbackState.value = 'error'
       error.value = 'We could not confirm your email. The link may have expired or already been used. You can request a new confirmation email below.'
@@ -41,19 +48,23 @@
     }
 
     email.value = auth.userEmail
-    await auth.refreshProfile()
     callbackState.value = 'success'
-    message.value = 'Your email has been verified successfully.'
+    message.value = 'Email verified successfully! Your email address has been confirmed. Please sign in to continue.'
+  }
 
-    let destination = '/pending-approval'
-    if (auth.isAdmin) {
-      destination = '/admin'
-    } else if (auth.employeeRegistrationComplete && auth.canAccessEmployeeWorkspace) {
-      destination = '/overview'
-    } else if (!auth.employeeRegistrationComplete) {
-      destination = '/employee-registration'
+  async function continueToSignIn () {
+    if (continueBusy.value) return
+    continueBusy.value = true
+    error.value = ''
+    try {
+      if (auth.isAuthenticated && !(await auth.logout())) {
+        error.value = 'Your email is verified, but Northstar could not end the confirmation session. Please try again.'
+        return
+      }
+      await router.replace('/login')
+    } finally {
+      continueBusy.value = false
     }
-    await router.replace(destination)
   }
 
   async function resendConfirmation () {
@@ -101,10 +112,13 @@
           <h1 id="verification-title">Email verified<br><em>successfully.</em></h1>
           <p class="verification-copy" role="status">{{ message }}</p>
 
-          <router-link class="primary-action verify-button continue-link" to="/login">
-            Continue to Northstar
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+
+          <button class="primary-action verify-button continue-link" :disabled="continueBusy" type="button"
+            @click="continueToSignIn">
+            {{ continueBusy ? 'Preparing sign in…' : 'Continue to sign in' }}
             <v-icon icon="mdi-arrow-right" size="17" />
-          </router-link>
+          </button>
         </template>
 
         <template v-else>

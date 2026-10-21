@@ -151,6 +151,11 @@
             <span>Settings</span>
           </router-link>
 
+        <router-link v-if="!auth.isAdmin" active-class="active" to="/rejection-history" @click="closeMobileNavigation">
+          <v-icon icon="mdi-history" size="19" />
+          <span>Registration history</span>
+        </router-link>
+
           <router-link v-if="auth.isAdmin" active-class="active" to="/admin" @click="closeMobileNavigation">
             <v-icon icon="mdi-shield-account-outline" size="19" />
             <span>Admin dashboard</span>

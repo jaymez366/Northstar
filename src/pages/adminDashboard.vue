@@ -68,6 +68,16 @@ type SupportInquiry = {
   updated_at: string
 }
 type SupportMessage = { id: string, sender_id: string, sender_name: string, content: string, created_at: string }
+type RejectionHistoryRecord = {
+  id: string
+  employee_id: string
+  employee_name: string
+  employee_email: string
+  rejection_reason: string
+  rejected_by_email: string
+  rejected_at: string
+  current_approval_status: string
+}
 const supportInquiries = ref<SupportInquiry[]>([])
 const selectedSupportInquiry = ref<SupportInquiry | null>(null)
 const supportMessages = ref<SupportMessage[]>([])
@@ -75,6 +85,9 @@ const supportReply = ref('')
 const supportLoading = ref(false)
 const supportReplyLoading = ref(false)
 const supportError = ref('')
+const rejectionHistory = ref<RejectionHistoryRecord[]>([])
+const rejectionHistoryLoading = ref(false)
+const rejectionHistoryError = ref('')
 const employeePhotoUrl = ref('')
 const employeePhotoPreviewOpen = ref(false)
 const employeePhotoLoading = ref(false)
@@ -154,17 +167,57 @@ async function loadEmailVerificationRecords() {
 }
 
 async function loadSupportInquiries() {
-  if (!auth.isAdmin || !supabase) return
+  if (!auth.isAdmin) {
+    supportError.value = 'Only the designated Northstar administrator can view support inquiries.'
+    return
+  }
+  if (!isSupabaseConfigured || !supabase) {
+    supportError.value = 'Support inquiries require a configured Northstar Supabase connection.'
+    return
+  }
   supportLoading.value = true
   supportError.value = ''
-  const { data, error } = await supabase.rpc('northstar_admin_list_support_inquiries')
-  if (error) {
-    supportError.value = `Could not load support inquiries: ${error.message}`
+  try {
+    const { data, error } = await supabase.rpc('northstar_admin_list_support_inquiries')
+    if (error) {
+      supportError.value = `Could not load support inquiries: ${error.message}`
+      console.error(supportError.value, error)
+    } else {
+      supportInquiries.value = data ?? []
+    }
+  } catch (error) {
+    supportError.value = 'Could not load support inquiries. Please try again.'
     console.error(supportError.value, error)
-  } else {
-    supportInquiries.value = data ?? []
+  } finally {
+    supportLoading.value = false
   }
-  supportLoading.value = false
+}
+
+async function loadRejectionHistory() {
+  if (!auth.isAdmin) {
+    rejectionHistoryError.value = 'Only the designated Northstar administrator can view rejection history.'
+    return
+  }
+  if (!isSupabaseConfigured || !supabase) {
+    rejectionHistoryError.value = 'Rejection history requires a configured Northstar Supabase connection.'
+    return
+  }
+  rejectionHistoryLoading.value = true
+  rejectionHistoryError.value = ''
+  try {
+    const { data, error } = await supabase.rpc('northstar_admin_list_employee_rejection_history')
+    if (error) {
+      rejectionHistoryError.value = `Could not load rejection history: ${error.message}`
+      console.error(rejectionHistoryError.value, error)
+    } else {
+      rejectionHistory.value = data ?? []
+    }
+  } catch (error) {
+    rejectionHistoryError.value = 'Could not load rejection history. Please try again.'
+    console.error(rejectionHistoryError.value, error)
+  } finally {
+    rejectionHistoryLoading.value = false
+  }
 }
 
 async function openEmployeeDetails(employee: EmployeeRegistrationRecord) {
@@ -261,6 +314,7 @@ async function setEmployeeApproval(employee: EmployeeRegistrationRecord, approva
     rejectEmployee.value = null
     rejectionReason.value = ''
     await loadEmployeeRecords()
+    await loadRejectionHistory()
   } catch (error) {
     approvalError.value = 'Could not update employee approval. Please try again.'
     console.error(approvalError.value, error)
@@ -281,6 +335,7 @@ onMounted(() => {
   })
   void loadEmailVerificationRecords()
   void loadSupportInquiries()
+  void loadRejectionHistory()
 })
 </script>
 
@@ -364,6 +419,31 @@ onMounted(() => {
             <button v-if="employee.approval_status === 'pending'" class="reject-button"
               :disabled="Boolean(updatingEmployeeId)" type="button"
               @click="openRejectionDialog(employee)">Reject</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="approval-panel surface-card">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">AUDIT HISTORY</p>
+          <h2>Historical registration rejections</h2>
+        </div>
+        <button class="secondary-action" :disabled="rejectionHistoryLoading" type="button" @click="loadRejectionHistory">
+          {{ rejectionHistoryLoading ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </div>
+      <p v-if="rejectionHistoryError" class="approval-error" role="alert">{{ rejectionHistoryError }}</p>
+      <p v-else-if="rejectionHistoryLoading" class="approval-empty">Loading historical rejections…</p>
+      <p v-else-if="rejectionHistory.length === 0" class="approval-empty">No rejection history is recorded yet.</p>
+      <div v-else class="approval-list">
+        <article v-for="record in rejectionHistory" :key="record.id" class="approval-item">
+          <div class="approval-details">
+            <strong>{{ record.employee_name }}</strong>
+            <span>{{ record.employee_email }} · Current status: {{ record.current_approval_status }}</span>
+            <small>Rejected by {{ record.rejected_by_email }} · {{ formatRecordDate(record.rejected_at) }}</small>
+            <small class="rejection-reason">Reason: {{ record.rejection_reason }}</small>
           </div>
         </article>
       </div>

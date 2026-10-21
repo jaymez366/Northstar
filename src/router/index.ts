@@ -144,6 +144,11 @@ const router = createRouter({
       component: PendingApproval,
       meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowPendingApproval: true },
     },
+    {
+      path: '/rejection-history',
+      component: PendingApproval,
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowPendingApproval: true },
+    },
   ],
 })
 

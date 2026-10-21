@@ -1,7 +1,9 @@
 <script setup lang="ts">
-  import { reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
+  import { validateNorthstarPhoto } from '@/utils/registrationPhoto'
 
   const auth = useAuthStore()
   const router = useRouter()
@@ -9,18 +11,12 @@
   const error = ref('')
   const photo = ref<File | null>(null)
   const photoChoice = ref<boolean | null>(null)
-  const departments = [
-    'Administration',
-    'Human Resources',
-    'Information Technology',
-    'Finance and Accounting',
-    'Marketing',
-    'Sales',
-    'Operations',
-    'Customer Support',
-    'Communications',
-    'Other',
-  ]
+  const photoValidating = ref(false)
+  const fieldErrors = ref<Record<string, string>>({})
+  const departmentRecords = ref<{ id: string, name: string }[]>([])
+  const departmentLoading = ref(false)
+  const departmentError = ref('')
+  const departments = computed(() => departmentRecords.value.map(department => department.name))
   const employmentTypes = ['Full-time', 'Part-time', 'Contract', 'Intern', 'Other']
   const form = reactive({
     firstName: auth.profile.firstName,
@@ -35,31 +31,81 @@
     managerName: auth.profile.managerName,
     bio: auth.profile.bio,
   })
-  const departmentOptions = [...new Set([...departments, auth.profile.department].filter(Boolean))]
+  const today = new Date()
+  const latestJoiningDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+  onMounted(() => { void loadDepartments() })
+
+  async function loadDepartments () {
+    departmentLoading.value = true
+    departmentError.value = ''
+    if (!isSupabaseConfigured || !supabase) {
+      departmentError.value = 'Departments cannot be checked until Northstar Supabase is configured.'
+      departmentLoading.value = false
+      return
+    }
+    try {
+      const { data, error: loadError } = await supabase.from('departments').select('id,name').order('name')
+      if (loadError) throw loadError
+      departmentRecords.value = (data ?? []).filter(row => typeof row.id === 'string' && typeof row.name === 'string')
+      if (departmentRecords.value.length === 0) departmentError.value = 'No departments are available. Contact the Northstar administrator.'
+    } catch (loadError) {
+      departmentError.value = 'Northstar could not load the available departments. Please try again.'
+      console.error('Could not load registration departments', loadError)
+    } finally {
+      departmentLoading.value = false
+    }
+  }
 
   function validateForm () {
-    if (!form.firstName.trim() || !form.lastName.trim() || !form.phoneNumber.trim()
-      || !form.department || !form.jobTitle.trim() || !form.employmentType
-      || !form.officeLocation.trim()) {
-      return 'Complete all required fields before submitting.'
+    const errors: Record<string, string> = {}
+    if (!form.firstName.trim()) errors.firstName = 'Enter your first name.'
+    if (!form.lastName.trim()) errors.lastName = 'Enter your last name.'
+    if (!/^\+?[\d\s().-]{7,24}$/.test(form.phoneNumber.trim()) || form.phoneNumber.replace(/\D/g, '').length < 7) {
+      errors.phoneNumber = 'Enter a valid phone number with at least seven digits.'
     }
-    if (!/^\+?[\d\s().-]{7,20}$/.test(form.phoneNumber.trim())
-      || form.phoneNumber.replace(/\D/g, '').length < 7) {
-      return 'Enter a valid phone number with at least seven digits.'
+    if (!departments.value.includes(form.department.trim())) errors.department = 'Choose a department currently listed in Northstar.'
+    if (!form.jobTitle.trim()) errors.jobTitle = 'Enter your job title.'
+    if (!employmentTypes.includes(form.employmentType)) errors.employmentType = 'Choose a valid employment type.'
+    if (!form.officeLocation.trim()) errors.officeLocation = 'Enter your office location or branch.'
+    if (form.dateOfJoining) {
+      const joiningDate = new Date(`${form.dateOfJoining}T00:00:00`)
+      const joiningDateIsReal = /^\d{4}-\d{2}-\d{2}$/.test(form.dateOfJoining)
+        && !Number.isNaN(joiningDate.getTime())
+        && `${joiningDate.getFullYear()}-${String(joiningDate.getMonth() + 1).padStart(2, '0')}-${String(joiningDate.getDate()).padStart(2, '0')}` === form.dateOfJoining
+      if (!joiningDateIsReal || form.dateOfJoining > latestJoiningDate) {
+        errors.dateOfJoining = 'Enter a valid date of joining that is not in the future.'
+      }
     }
-    return ''
+    fieldErrors.value = errors
+    return Object.keys(errors).length ? 'Review the highlighted registration fields.' : ''
   }
 
   async function submitRegistration () {
     error.value = validateForm()
-    if (photo.value && photoChoice.value === null) {
+    if (departmentLoading.value || photoValidating.value) {
+      error.value = 'Wait for department and photo validation to finish.'
+    } else if (departmentError.value) {
+      error.value = departmentError.value
+    } else if (photo.value && photoChoice.value === null) {
       error.value = 'Choose whether this photo should be used as your Northstar profile picture.'
     }
     if (error.value || saving.value) return
 
     saving.value = true
     try {
-      const saved = await auth.completeEmployeeRegistration({ ...form })
+      const saved = await auth.completeEmployeeRegistration({
+        ...form,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        phoneNumber: form.phoneNumber.trim(),
+        department: form.department.trim(),
+        jobTitle: form.jobTitle.trim(),
+        employeeId: form.employeeId.trim(),
+        officeLocation: form.officeLocation.trim(),
+        managerName: form.managerName.trim(),
+        bio: form.bio.trim(),
+      })
       if (!saved) {
         error.value = auth.errorMessage || 'Your registration could not be saved.'
         return
@@ -81,16 +127,25 @@
     }
   }
 
-  function selectPhoto (event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/') || file.size > 1_000_000) {
-      error.value = 'Choose an image file smaller than 1 MB.'
-      return
-    }
-    photo.value = file
+  async function selectPhoto (event: Event) {
+    const input = event.target as HTMLInputElement
+    const file = input.files?.[0]
+    photo.value = null
     photoChoice.value = null
     error.value = ''
+    if (!file) return
+    photoValidating.value = true
+    try {
+      const validationError = await validateNorthstarPhoto(file)
+      if (validationError) {
+        input.value = ''
+        error.value = validationError
+        return
+      }
+      photo.value = file
+    } finally {
+      photoValidating.value = false
+    }
   }
 </script>
 
@@ -113,11 +168,13 @@
 
         <div class="registration-grid">
           <label>First name <span>*</span>
-            <input v-model="form.firstName" autocomplete="given-name" maxlength="80" required>
+            <input v-model="form.firstName" :aria-invalid="Boolean(fieldErrors.firstName)" autocomplete="given-name" maxlength="80" required>
+            <small v-if="fieldErrors.firstName" class="form-field-error">{{ fieldErrors.firstName }}</small>
           </label>
 
           <label>Last name <span>*</span>
-            <input v-model="form.lastName" autocomplete="family-name" maxlength="80" required>
+            <input v-model="form.lastName" :aria-invalid="Boolean(fieldErrors.lastName)" autocomplete="family-name" maxlength="80" required>
+            <small v-if="fieldErrors.lastName" class="form-field-error">{{ fieldErrors.lastName }}</small>
           </label>
 
           <label>Verified work email
@@ -128,12 +185,14 @@
 
             <input
               v-model="form.phoneNumber"
+              :aria-invalid="Boolean(fieldErrors.phoneNumber)"
               autocomplete="tel"
               maxlength="24"
               placeholder="+1 (555) 000-0000"
               required
               type="tel"
             >
+            <small v-if="fieldErrors.phoneNumber" class="form-field-error">{{ fieldErrors.phoneNumber }}</small>
           </label>
         </div>
       </section>
@@ -147,22 +206,25 @@
         <div class="registration-grid">
           <label>Department <span>*</span>
 
-            <select v-model="form.department" required>
-              <option disabled value="">Choose a department</option>
-              <option v-for="department in departmentOptions" :key="department">{{ department }}</option>
+            <select v-model="form.department" :aria-invalid="Boolean(fieldErrors.department)" :disabled="departmentLoading || departments.length === 0" required>
+              <option disabled value="">{{ departmentLoading ? 'Loading departments…' : 'Choose a department' }}</option>
+              <option v-for="department in departments" :key="department">{{ department }}</option>
             </select>
+            <small v-if="fieldErrors.department || departmentError" class="form-field-error">{{ fieldErrors.department || departmentError }}</small>
           </label>
 
           <label>Job title <span>*</span>
-            <input v-model="form.jobTitle" maxlength="120" required>
+            <input v-model="form.jobTitle" :aria-invalid="Boolean(fieldErrors.jobTitle)" maxlength="120" required>
+            <small v-if="fieldErrors.jobTitle" class="form-field-error">{{ fieldErrors.jobTitle }}</small>
           </label>
 
           <label>Employment type <span>*</span>
 
-            <select v-model="form.employmentType" required>
+            <select v-model="form.employmentType" :aria-invalid="Boolean(fieldErrors.employmentType)" required>
               <option disabled value="">Choose employment type</option>
               <option v-for="type in employmentTypes" :key="type">{{ type }}</option>
             </select>
+            <small v-if="fieldErrors.employmentType" class="form-field-error">{{ fieldErrors.employmentType }}</small>
           </label>
 
           <label>Employee ID
@@ -170,11 +232,13 @@
           </label>
 
           <label>Office location or branch <span>*</span>
-            <input v-model="form.officeLocation" maxlength="120" required>
+            <input v-model="form.officeLocation" :aria-invalid="Boolean(fieldErrors.officeLocation)" maxlength="120" required>
+            <small v-if="fieldErrors.officeLocation" class="form-field-error">{{ fieldErrors.officeLocation }}</small>
           </label>
 
           <label>Date of joining
-            <input v-model="form.dateOfJoining" :max="new Date().toISOString().slice(0, 10)" type="date">
+            <input v-model="form.dateOfJoining" :aria-invalid="Boolean(fieldErrors.dateOfJoining)" :max="latestJoiningDate" type="date">
+            <small v-if="fieldErrors.dateOfJoining" class="form-field-error">{{ fieldErrors.dateOfJoining }}</small>
           </label>
 
           <label>Manager's name
@@ -182,8 +246,8 @@
           </label>
 
           <label>Profile photo
-            <input accept="image/jpeg,image/png,image/webp" type="file" @change="selectPhoto">
-            <small>Optional · JPEG, PNG, or WebP up to 1 MB</small>
+            <input accept="image/*" :disabled="saving || photoValidating" type="file" @change="selectPhoto">
+            <small>{{ photoValidating ? 'Checking image type and content…' : 'Optional · Supported image formats up to 1 MB' }}</small>
           </label>
         </div>
 
@@ -201,7 +265,7 @@
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
 
       <div class="form-actions">
-        <button class="primary-action" :disabled="saving" type="submit">
+        <button class="primary-action" :disabled="saving || photoValidating || departmentLoading" type="submit">
           {{ saving ? 'Submitting registration…' : 'Submit for approval' }}
           <v-icon v-if="saving" class="loading-icon" icon="mdi-loading" size="16" />
           <v-icon v-else icon="mdi-arrow-right" size="16" />
@@ -224,6 +288,8 @@
 .registration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
 .registration-grid label, .bio-field { display: grid; align-content: start; gap: 7px; color: var(--ns-text-53665a, #53665a); font-size: 10px; font-weight: 700; }
 .registration-grid label > span { color: var(--ns-text-d35f46, #d35f46); }
+.registration-grid .form-field-error { color: var(--ns-danger-text); font-size: 9px; font-weight: 500; line-height: 1.5; }
+.registration-grid [aria-invalid="true"] { border-color: var(--ns-danger-text); }
 .registration-grid input, .registration-grid select, .bio-field textarea {
   width: 100%; min-height: 40px; border: 1px solid var(--ns-border-dce4d9, #dce4d9); border-radius: 0;
   padding: 9px 11px; background: var(--ns-bg-fbfcf9, #fbfcf9); color: var(--ns-text-18352d, #18352d); font: 11px "Manrope", sans-serif;

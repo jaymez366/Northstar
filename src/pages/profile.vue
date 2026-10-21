@@ -2,6 +2,7 @@
   import { reactive, ref } from 'vue'
   import { useAuthStore } from '@/stores/auth'
   import { isSupabaseConfigured } from '../../lib/supabase.js'
+  import { validateNorthstarPhoto } from '@/utils/registrationPhoto'
 
   const auth = useAuthStore()
   const editing = ref(false)
@@ -40,17 +41,15 @@
   }
 
   async function uploadPhoto (event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0]
+    const input = event.target as HTMLInputElement
+    const file = input.files?.[0]
     if (!file) return
     photoError.value = ''
 
-    if (!file.type.startsWith('image/')) {
-      photoError.value = 'Choose an image file.'
-      return
-    }
-
-    if (file.size > 1_000_000) {
-      photoError.value = 'Choose an image smaller than 1 MB.'
+    const validationError = await validateNorthstarPhoto(file)
+    if (validationError) {
+      photoError.value = validationError
+      input.value = ''
       return
     }
 

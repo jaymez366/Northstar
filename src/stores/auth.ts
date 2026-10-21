@@ -2,9 +2,19 @@ import type { User } from '@supabase/supabase-js'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { isSupabaseConfigured, supabase, supabaseConfigurationError } from '../../lib/supabase.js'
+import { validateNorthstarPhoto } from '@/utils/registrationPhoto'
 
 const signupConfirmationRedirect = () => `${window.location.origin}/auth/callback`
 const administratorEmail = 'northstaradmin34@gmail.com'
+const emailConfirmationCallbackDetected = (() => {
+  if (typeof window === 'undefined' || !window.location.pathname.endsWith('/auth/callback')) return false
+  const url = new URL(window.location.href)
+  const hash = new URLSearchParams(url.hash.slice(1))
+  return url.searchParams.has('code') || url.searchParams.has('token_hash')
+    || url.searchParams.has('error') || url.searchParams.has('error_description')
+    || (hash.has('access_token') && ['signup', 'email'].includes(hash.get('type') ?? ''))
+    || hash.has('error') || hash.has('error_description')
+})()
 const isUuid = (value: string | null | undefined): value is string =>
   typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
@@ -356,12 +366,27 @@ export const useAuthStore = defineStore('auth', () => {
       },
     })
     if (error) {
-      errorMessage.value = error.message
+      if (error.code === 'user_already_exists' || error.code === 'email_exists') {
+        errorMessage.value = 'An account may already exist for this email. Sign in or request a confirmation link if needed.'
+      } else if (!error.status || error.status >= 500 || /fetch|network|timeout/i.test(error.message)) {
+        errorMessage.value = 'Northstar could not reach the account service. Check your connection and try again.'
+      } else {
+        errorMessage.value = 'We could not create this account. Check the details and try again.'
+      }
       console.error('Supabase signup request failed', {
         endpoint: '/auth/v1/signup',
         status: error.status,
         code: error.code ?? 'unknown',
       })
+      return { success: false, requiresEmailConfirmation: false }
+    }
+
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      errorMessage.value = 'An account may already exist for this email. Sign in or request a confirmation link if needed.'
+      return { success: false, requiresEmailConfirmation: false }
+    }
+    if (!data.user) {
+      errorMessage.value = 'Northstar could not confirm that the account was created. Please try again.'
       return { success: false, requiresEmailConfirmation: false }
     }
 
@@ -402,6 +427,12 @@ export const useAuthStore = defineStore('auth', () => {
     if (error) {
       errorMessage.value = `Could not save your employee registration: ${error.message}`
       console.error(errorMessage.value, error)
+      return false
+    }
+    await loadProfile(userId.value)
+    if (!profileLoaded.value || profile.value.approvalStatus !== 'pending'
+      || !profile.value.registrationCompleted || profile.value.status !== 'inactive') {
+      errorMessage.value = 'Your registration was submitted, but Northstar could not confirm its pending approval status. Refresh your profile or contact the administrator before retrying.'
       return false
     }
     profile.value = {
@@ -496,6 +527,11 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function uploadAvatar (file: File) {
     errorMessage.value = ''
+    const photoValidationError = await validateNorthstarPhoto(file)
+    if (photoValidationError) {
+      errorMessage.value = photoValidationError
+      return false
+    }
     if (!isSupabaseConfigured || !supabase || !isUuid(userId.value)) {
       errorMessage.value = 'Profile photo upload requires an active Supabase session.'
       return false
@@ -523,6 +559,11 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function uploadRegistrationPhoto (file: File, useAsProfilePhoto: boolean) {
     errorMessage.value = ''
+    const photoValidationError = await validateNorthstarPhoto(file)
+    if (photoValidationError) {
+      errorMessage.value = photoValidationError
+      return false
+    }
     if (!isSupabaseConfigured || !supabase || !isUuid(userId.value)) {
       errorMessage.value = 'Registration photo upload requires an active Supabase session.'
       return false
@@ -617,6 +658,7 @@ export const useAuthStore = defineStore('auth', () => {
     emailVerified,
     isAdmin,
     isPasswordRecovery,
+    emailConfirmationCallbackDetected,
     registrationSubmissionSucceeded,
     userId,
     userEmail,
