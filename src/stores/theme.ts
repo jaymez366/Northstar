@@ -6,6 +6,7 @@ import vuetify from '@/plugins/vuetify'
 export type NorthstarTheme = 'light' | 'dark'
 
 const storageKey = 'northstar-theme'
+const pendingUserThemeKey = 'northstar-theme-pending-user'
 const userStorageKey = (userId: string) => `${storageKey}:${userId}`
 const isTheme = (value: unknown): value is NorthstarTheme => value === 'light' || value === 'dark'
 
@@ -20,6 +21,7 @@ export const useThemeStore = defineStore('theme', () => {
   const persistenceError = ref('')
   let persistenceQueue = Promise.resolve()
   let activeUserId = ''
+  let pendingUserTheme: NorthstarTheme | null = null
 
   function apply (value: NorthstarTheme) {
     current.value = value
@@ -67,11 +69,24 @@ export const useThemeStore = defineStore('theme', () => {
     activeUserId = userId
     apply(value)
     saveLocally(value, userId)
+    if (!userId) {
+      pendingUserTheme = value
+      localStorage.setItem(pendingUserThemeKey, value)
+    }
     if (persist && userId) void persistForUser(value, userId)
   }
 
   async function loadForUser (userId: string) {
     activeUserId = userId
+    const pendingValue = pendingUserTheme ?? localStorage.getItem(pendingUserThemeKey)
+    if (userId && isTheme(pendingValue)) {
+      pendingUserTheme = null
+      localStorage.removeItem(pendingUserThemeKey)
+      apply(pendingValue)
+      saveLocally(pendingValue, userId)
+      if (isSupabaseConfigured && supabase) await persistForUser(pendingValue, userId)
+      return
+    }
     const localValue = userId
       ? localStorage.getItem(userStorageKey(userId))
       : localStorage.getItem(storageKey)
@@ -100,5 +115,11 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
-  return { current, persistenceError, setTheme, loadForUser }
+  function initializeLocalTheme () {
+    const localValue = localStorage.getItem(storageKey)
+    if (isTheme(localValue)) apply(localValue)
+    else apply(current.value)
+  }
+
+  return { current, persistenceError, setTheme, loadForUser, initializeLocalTheme }
 })

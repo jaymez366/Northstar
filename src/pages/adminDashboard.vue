@@ -71,6 +71,7 @@ type SupportMessage = { id: string, sender_id: string, sender_name: string, cont
 type RejectionHistoryRecord = {
   id: string
   employee_id: string
+  employee_number: string | null
   employee_name: string
   employee_email: string
   rejection_reason: string
@@ -109,6 +110,9 @@ const rejectionHistorySearch = ref('')
 const emailVerificationSearch = ref('')
 const supportSearch = ref('')
 const selectedRejectionHistory = ref<RejectionHistoryRecord | null>(null)
+const rejectionSnapshot = ref<Record<string, unknown> | null>(null)
+const rejectionSnapshotLoading = ref(false)
+const rejectionSnapshotError = ref('')
 const employeePhotoUrl = ref('')
 const employeePhotoPreviewOpen = ref(false)
 const employeePhotoLoading = ref(false)
@@ -242,7 +246,7 @@ async function loadRejectionHistory() {
   rejectionHistoryLoading.value = true
   rejectionHistoryError.value = ''
   try {
-    const { data, error } = await supabase.rpc('northstar_admin_list_employee_rejection_history_with_correction')
+    const { data, error } = await supabase.rpc('northstar_admin_list_employee_rejection_history_with_corrections')
     if (error) {
       rejectionHistoryError.value = `Could not load rejection history: ${error.message}`
       console.error(rejectionHistoryError.value, error)
@@ -254,6 +258,36 @@ async function loadRejectionHistory() {
     console.error(rejectionHistoryError.value, error)
   } finally {
     rejectionHistoryLoading.value = false
+  }
+}
+
+async function openRejectionHistory(record: RejectionHistoryRecord) {
+  selectedRejectionHistory.value = record
+  rejectionSnapshot.value = null
+  rejectionSnapshotError.value = ''
+  if (!record.registration_snapshot_id) return
+  if (!auth.isAdmin || !supabase || !isUuid(record.id)) {
+    rejectionSnapshotError.value = 'The administrator session is required to view the historical registration snapshot.'
+    return
+  }
+  rejectionSnapshotLoading.value = true
+  try {
+    const { data, error } = await supabase.rpc('northstar_admin_get_employee_rejection_snapshot', {
+      p_rejection_id: record.id,
+    })
+    if (error) {
+      rejectionSnapshotError.value = `Could not load the associated registration snapshot: ${error.message}`
+      console.error(rejectionSnapshotError.value, error)
+    } else if (data && typeof data === 'object' && !Array.isArray(data)) {
+      rejectionSnapshot.value = data as Record<string, unknown>
+    } else {
+      rejectionSnapshotError.value = 'No registration snapshot was returned for this rejection event.'
+    }
+  } catch (error) {
+    rejectionSnapshotError.value = 'Could not load the associated registration snapshot.'
+    console.error(rejectionSnapshotError.value, error)
+  } finally {
+    rejectionSnapshotLoading.value = false
   }
 }
 
@@ -416,10 +450,12 @@ onMounted(() => {
         </button>
       </div>
 
-      <input v-model="registrationSearch"
-        aria-label="Search employee registrations by name, email, department, or job title"
-        class="field-control registration-search" placeholder="Search name, email, department, or job title"
-        type="search">
+      <div class="admin-search-row registration-search-row">
+        <input v-model="registrationSearch"
+          aria-label="Search employee registrations by name, email, department, or job title"
+          class="registration-search" placeholder="Search name, email, department, or job title"
+          type="search">
+      </div>
 
       <p v-if="approvalError" class="approval-error" role="alert">{{ approvalError }}</p>
       <p v-else-if="approvalsLoading" class="approval-empty">Loading employee registrations…</p>
@@ -499,13 +535,13 @@ onMounted(() => {
             <small class="rejection-reason">Reason: {{ record.rejection_reason }}</small>
             <small>Required corrections: {{ record.correction_fields.map(correctionFieldLabel).join(', ') || 'No fields recorded' }}</small>
           </div>
-          <button class="details-button" type="button" @click="selectedRejectionHistory = record">View Details</button>
+          <button class="details-button" type="button" @click="openRejectionHistory(record)">View Details</button>
         </article>
         </div>
       </div>
     </section>
 
-    <v-dialog max-width="700" :model-value="Boolean(selectedRejectionHistory)"
+    <v-dialog max-width="640" :model-value="Boolean(selectedRejectionHistory)"
       @update:model-value="!$event && (selectedRejectionHistory = null)">
       <v-card v-if="selectedRejectionHistory" class="employee-detail-dialog">
         <v-card-title class="dialog-heading">
@@ -515,6 +551,7 @@ onMounted(() => {
         <v-card-text>
           <dl class="rejection-detail-list">
             <div><dt>Employee</dt><dd>{{ selectedRejectionHistory.employee_name }}</dd></div>
+            <div><dt>Employee number</dt><dd>{{ selectedRejectionHistory.employee_number || 'Not recorded' }}</dd></div>
             <div><dt>Email</dt><dd>{{ selectedRejectionHistory.employee_email }}</dd></div>
             <div><dt>Historical status</dt><dd>Rejected</dd></div>
             <div><dt>Current status</dt><dd>{{ selectedRejectionHistory.current_approval_status }}</dd></div>
@@ -523,7 +560,18 @@ onMounted(() => {
           </dl>
           <p class="detail-rejection"><strong>Rejection reason:</strong> {{ selectedRejectionHistory.rejection_reason }}</p>
           <p><strong>Required corrections:</strong> {{ selectedRejectionHistory.correction_fields.map(correctionFieldLabel).join(', ') || 'No fields recorded' }}</p>
-          <p><strong>Registration snapshot ID:</strong> {{ selectedRejectionHistory.registration_snapshot_id || 'Unavailable' }}</p>
+          <section class="historical-snapshot" aria-labelledby="historical-snapshot-title">
+            <h3 id="historical-snapshot-title">Registration details at rejection</h3>
+            <p v-if="!selectedRejectionHistory.registration_snapshot_id" class="approval-empty">No snapshot was linked to this historical event.</p>
+            <p v-else-if="rejectionSnapshotLoading" class="approval-empty" role="status">Loading the linked registration snapshot…</p>
+            <p v-else-if="rejectionSnapshotError" class="approval-error" role="alert">{{ rejectionSnapshotError }}</p>
+            <dl v-else-if="rejectionSnapshot" class="rejection-detail-list">
+              <div v-for="field in correctionFieldOptions" :key="field.value">
+                <dt>{{ field.label }}</dt>
+                <dd>{{ rejectionSnapshot[field.value] === null || rejectionSnapshot[field.value] === undefined || rejectionSnapshot[field.value] === '' ? 'Not recorded in snapshot' : String(rejectionSnapshot[field.value]) }}</dd>
+              </div>
+            </dl>
+          </section>
         </v-card-text>
       </v-card>
     </v-dialog>
@@ -854,7 +902,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <v-dialog max-width="700" :model-value="Boolean(selectedSupportInquiry)"
+    <v-dialog max-width="640" :model-value="Boolean(selectedSupportInquiry)"
       @update:model-value="!$event && (selectedSupportInquiry = null)">
       <v-card v-if="selectedSupportInquiry" class="employee-detail-dialog">
         <v-card-title class="dialog-heading"><span>Support inquiry · {{ selectedSupportInquiry.topic }}</span><v-btn
@@ -973,9 +1021,20 @@ onMounted(() => {
 }
 
 .registration-search {
-  width: min(100%, 420px);
-  margin: 5px 0 10px;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
 }
+
+.registration-search-row { max-width: 100%; }
+.historical-snapshot { margin-top: 18px; border-top: 1px solid var(--ns-border); padding-top: 14px; }
+.historical-snapshot h3 { margin: 0 0 12px; color: var(--ns-text-primary); font-size: 12px; }
 
 .approval-list {
   display: grid;

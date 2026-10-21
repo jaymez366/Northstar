@@ -1,11 +1,10 @@
 <script setup lang="ts">
-  import { computed, onMounted, onUnmounted, ref } from 'vue'
-  import { useRoute, useRouter } from 'vue-router'
+  import { onMounted, onUnmounted, ref } from 'vue'
+  import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
   import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
   const auth = useAuthStore()
-  const route = useRoute()
   const router = useRouter()
   const checking = ref(false)
   const error = ref('')
@@ -31,7 +30,6 @@
   const rejectionHistory = ref<RejectionHistoryRecord[]>([])
   const rejectionHistoryLoading = ref(false)
   const rejectionHistoryError = ref('')
-  const isHistoryRoute = computed(() => route.path === '/rejection-history')
   const correctionFieldLabels: Record<string, string> = {
     first_name: 'First name',
     last_name: 'Last name',
@@ -92,10 +90,8 @@
       await auth.refreshProfile()
       if (auth.canAccessEmployeeWorkspace) {
         approvedNotice.value = true
-        if (!isHistoryRoute.value) {
-          await new Promise(resolve => window.setTimeout(resolve, 1800))
-          await router.replace('/overview')
-        }
+        await new Promise(resolve => window.setTimeout(resolve, 1800))
+        await router.replace('/overview')
       } else if (auth.profile.registrationCompleted) {
         if (auth.errorMessage) {
           error.value = auth.errorMessage
@@ -153,9 +149,8 @@
   <main class="approval-page">
     <section v-if="!viewingSubmittedDetails" class="approval-card surface-card">
       <span class="approval-icon"><v-icon icon="mdi-account-clock-outline" size="25" /></span>
-      <p class="eyebrow">{{ isHistoryRoute ? 'REGISTRATION HISTORY' : 'REGISTRATION RECEIVED' }}</p>
-      <h1 v-if="isHistoryRoute">Your registration<br><em>history.</em></h1>
-      <h1 v-else>You're almost<br><em>in the Northstar.</em></h1>
+      <p class="eyebrow">REGISTRATION RECEIVED</p>
+      <h1>You're almost<br><em>in the Northstar.</em></h1>
 
       <p class="approval-copy">
         <template v-if="approvedNotice">
@@ -188,7 +183,7 @@
         <strong>Reason:</strong> {{ auth.profile.rejectionReason }}
       </p>
 
-      <p class="approval-state" :class="{ rejected: auth.profile.approvalStatus === 'rejected' }">
+      <p class="approval-state" :class="{ rejected: auth.profile.approvalStatus === 'rejected', approved: approvedNotice || (auth.profile.approvalStatus === 'approved' && auth.profile.status === 'active') }">
         <i /> {{ approvedNotice || (auth.profile.approvalStatus === 'approved' && auth.profile.status === 'active') ? 'Registration approved' : (auth.profile.approvalStatus === 'rejected' ? 'Registration not approved' : (auth.profile.approvalStatus === 'approved' ? 'Account inactive' : 'Awaiting administrator approval')) }}
       </p>
 
@@ -296,6 +291,8 @@ h1 em { color: var(--ns-text-e16b4c, #e16b4c); font-style: normal; }
 .approval-copy { max-width: 410px; margin: 16px 0; color: var(--ns-text-718178, #718178); font-size: 11px; line-height: 1.8; }
 .approval-state { display: flex; align-items: center; gap: 8px; color: var(--ns-text-9b7049, #9b7049); font-size: 10px; }
 .approval-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--ns-bg-d79354, #d79354); }
+.approval-state.approved { color: rgb(var(--v-theme-success)); }
+.approval-state.approved i { background: rgb(var(--v-theme-success)); }
 .approval-state.rejected { color: var(--ns-text-a34c39, #a34c39); }
 .approval-state.rejected i { background: var(--ns-bg-b85138, #b85138); }
 .approval-error { color: var(--ns-text-a34c39, #a34c39); font-size: 10px; }

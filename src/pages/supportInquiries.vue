@@ -37,7 +37,6 @@
         console.error(error.value, loadError)
       } else {
         inquiries.value = data ?? []
-        if (!selectedId.value && inquiries.value[0]) selectedId.value = inquiries.value[0].id
         if (selectedId.value && inquiries.value.some(inquiry => inquiry.id === selectedId.value)) {
           await loadMessages(selectedId.value)
         } else {
@@ -99,6 +98,13 @@
     }
   }
 
+  function leaveChat () {
+    selectedId.value = ''
+    messages.value = []
+    reply.value = ''
+    error.value = ''
+  }
+
   function formatDate (value: string) {
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   }
@@ -121,7 +127,7 @@
     </header>
 
     <p v-if="error" class="support-error" role="alert">{{ error }}</p>
-    <section class="support-layout surface-card">
+    <section class="support-layout surface-card" :class="{ 'support-has-selected': Boolean(selectedInquiry) }">
       <aside class="support-list">
         <button v-for="inquiry in inquiries" :key="inquiry.id" class="support-item" :class="{ selected: selectedId === inquiry.id }" type="button" @click="loadMessages(inquiry.id)">
           <strong>{{ inquiry.topic }}</strong><small>{{ inquiry.status }} · {{ formatDate(inquiry.created_at) }}</small>
@@ -131,7 +137,12 @@
       </aside>
 
       <section v-if="selectedInquiry" class="support-thread">
-        <h2>{{ selectedInquiry.topic }}</h2>
+        <header class="support-thread-heading">
+          <button class="support-back" type="button" @click="leaveChat">
+            <v-icon icon="mdi-arrow-left" size="17" /> Back to conversations
+          </button>
+          <h2>{{ selectedInquiry.topic }}</h2>
+        </header>
         <p class="thread-refresh-note">Messages refresh automatically. You can also refresh the list above.</p>
         <div class="support-messages">
           <p v-if="messagesLoading" class="support-empty" role="status">Loading messages…</p>
@@ -148,29 +159,42 @@
           </button>
         </form>
       </section>
-      <section v-else class="support-empty support-thread">Select an inquiry to view messages.</section>
+      <section v-else class="support-empty support-thread">
+        <v-icon icon="mdi-chat-processing-outline" size="32" aria-hidden="true" />
+        <strong>Your expert support conversations</strong>
+        <span>Select an inquiry to read messages and continue the conversation.</span>
+        <router-link class="secondary-action" to="/start-conversation">Start a new inquiry</router-link>
+      </section>
     </section>
   </main>
 </template>
 
 <style scoped>
-.support-layout { display: grid; min-height: 480px; grid-template-columns: 280px 1fr; overflow: hidden; }
+.support-layout { display: grid; min-height: 480px; grid-template-columns: 280px minmax(0, 1fr); overflow: hidden; }
 .support-list { border-right: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
-.support-item { display: grid; width: 100%; gap: 7px; border: 0; border-bottom: 1px solid var(--ns-border-edf0ea, #edf0ea); padding: 15px; background: white; color: var(--ns-text-18352d, #18352d); cursor: pointer; text-align: left; }
-.support-item.selected { background: var(--ns-bg-f1f4eb, #f1f4eb); }
+.support-item { display: grid; width: 100%; gap: 7px; border: 0; border-bottom: 1px solid var(--ns-border); padding: 15px; background: var(--ns-surface); color: var(--ns-text-primary); cursor: pointer; text-align: left; }
+.support-item.selected, .support-item:hover { background: var(--ns-surface-hover, var(--ns-blue-soft)); }
+.support-item:focus-visible, .support-back:focus-visible { outline: 2px solid var(--ns-primary); outline-offset: -2px; }
 .support-item small, .support-empty { color: var(--ns-text-829187, #829187); font-size: 10px; }
 .support-thread { display: flex; min-width: 0; flex-direction: column; padding: 20px; }
-.support-thread h2 { margin: 0 0 15px; color: var(--ns-text-18352d, #18352d); font-size: 16px; }
+.support-thread-heading { display: grid; justify-items: start; gap: 12px; margin-bottom: 15px; }
+.support-thread h2 { margin: 0; color: var(--ns-text-primary); font-size: 16px; }
+.support-back { display: inline-flex; min-height: 36px; align-items: center; gap: 5px; border: 1px solid var(--ns-border); border-radius: 8px; padding: 0 10px; background: var(--ns-surface); color: var(--ns-text-primary); cursor: pointer; font: inherit; font-size: 10px; }
+.support-back:hover { background: var(--ns-surface-hover, var(--ns-blue-soft)); }
 .support-messages { display: flex; flex: 1; flex-direction: column; gap: 12px; overflow-y: auto; }
-.support-message { border: 1px solid var(--ns-border-e3e9dc, #e3e9dc); padding: 12px; background: var(--ns-bg-f8f9f6, #f8f9f6); }
-.support-message strong { color: var(--ns-text-18352d, #18352d); font-size: 11px; }
-.support-message p { margin: 6px 0; color: var(--ns-text-52645a, #52645a); font-size: 12px; white-space: pre-wrap; }
+.support-message { border: 1px solid var(--ns-border); border-radius: 9px; padding: 12px; background: var(--ns-surface-raised); color: var(--ns-text-primary); }
+.support-message strong { color: var(--ns-text-primary); font-size: 11px; }
+.support-message p { margin: 6px 0; color: var(--ns-text-primary); font-size: 12px; white-space: pre-wrap; }
 .support-message time { color: var(--ns-text-829187, #829187); font-size: 9px; }
 .support-reply { display: grid; gap: 10px; margin-top: 16px; }
-.support-reply textarea { border: 1px solid var(--ns-border-dce4d8, #dce4d8); padding: 10px; color: var(--ns-text-18352d, #18352d); font: inherit; }
+.support-reply textarea { border: 1px solid var(--ns-border); border-radius: 8px; padding: 10px; background: var(--ns-surface-raised); color: var(--ns-text-primary); font: inherit; }
+.support-empty.support-thread { align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; }
+.support-empty.support-thread strong { color: var(--ns-text-primary); font-size: 13px; }
+.support-empty.support-thread span { max-width: 320px; line-height: 1.6; }
+.support-empty.support-thread .secondary-action { margin-top: 4px; }
 .support-reply button { justify-self: end; }
 .support-error { color: var(--ns-text-a34c39, #a34c39); font-size: 12px; }
 .thread-refresh-note { margin: -10px 0 12px; color: var(--ns-text-secondary); font-size: 10px; }
 .support-message.mine { align-self: flex-end; max-width: 85%; border-color: var(--ns-blue-border); background: var(--ns-blue-soft); }
-@media (max-width: 700px) { .support-layout { grid-template-columns: 1fr; } .support-list { max-height: 220px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); } .support-thread { min-height: 360px; } }
+@media (max-width: 700px) { .support-layout { grid-template-columns: 1fr; } .support-list { max-height: 220px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--ns-border); } .support-layout.support-has-selected .support-list { display: none; } .support-thread { min-height: 360px; padding: 15px; } }
 </style>

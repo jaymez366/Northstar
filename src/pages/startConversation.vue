@@ -376,15 +376,15 @@ textarea {
   margin-top: 7px;
   padding: 16px 19px;
   border: 0;
-  background: var(--ns-bg-d4ec66, #d4ec66);
-  color: var(--ns-text-18352d, #18352d);
+  background: var(--ns-primary);
+  color: #fff;
   font:
     700 12px "Manrope",
     sans-serif;
   cursor: pointer;
 }
 .submit-button:hover {
-  background: var(--ns-bg-e3f48a, #e3f48a);
+  background: var(--ns-primary-hover);
 }
 .privacy-note {
   display: flex;
@@ -405,8 +405,8 @@ textarea {
   width: 58px;
   height: 58px;
   margin-bottom: 38px;
-  background: var(--ns-bg-d4ec66, #d4ec66);
-  color: var(--ns-text-18352d, #18352d);
+  background: var(--ns-blue-soft);
+  color: var(--ns-primary);
 }
 .success-state h2 {
   margin: 21px 0 17px;
@@ -541,6 +541,8 @@ select {
   box-shadow: 0 8px 18px rgb(37 99 235 / 18%);
 }
 .submit-button:hover:not(:disabled) { background: var(--ns-primary-hover); }
+.submit-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--ns-primary) 36%, transparent); outline-offset: 3px; }
+.submit-button:active:not(:disabled) { background: var(--ns-primary-hover); transform: translateY(1px); }
 .submit-button:disabled { cursor: wait; opacity: .7; }
 .inquiry-error { color: var(--ns-danger-text); font-size: 12px; line-height: 1.5; }
 .success-state h2,

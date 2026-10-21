@@ -24,6 +24,7 @@ import Overview from '@/pages/overView.vue'
 import PasswordReset from '@/pages/passwordReset.vue'
 import PendingApproval from '@/pages/pendingApproval.vue'
 import Profile from '@/pages/profile.vue'
+import RegistrationHistory from '@/pages/registrationHistory.vue'
 import Resources from '@/pages/resources.vue'
 import Settings from '@/pages/settings.vue'
 import StartConversation from '@/pages/startConversation.vue'
@@ -146,7 +147,7 @@ const router = createRouter({
     },
     {
       path: '/rejection-history',
-      component: PendingApproval,
+      component: RegistrationHistory,
       meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowPendingApproval: true },
     },
   ],

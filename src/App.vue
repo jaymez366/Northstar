@@ -28,5 +28,5 @@
 
   watch(() => auth.userId, userId => {
     void appearance.loadForUser(userId)
-  }, { immediate: true })
+  })
 </script>
