@@ -427,7 +427,6 @@ onUnmounted(() => {
 
     <footer class="dashboard-footer">
       <span><v-icon icon="mdi-information-outline" size="17" /> Incident visibility and management are enforced by Supabase Row Level Security and database functions.</span>
-      <router-link to="/support-inquiries">Open Expert Support <v-icon icon="mdi-arrow-top-right" size="15" /></router-link>
     </footer>
   </main>
 </template>

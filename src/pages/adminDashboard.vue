@@ -952,12 +952,6 @@ onMounted(() => {
         <small>Read updates published by employees</small>
         <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" />
       </router-link>
-      <router-link class="surface-card admin-link-card" to="/employee-communication">
-        <span><v-icon icon="mdi-message-text-outline" /></span>
-        <strong>Employee communication</strong>
-        <small>Review the employee communication workspace</small>
-        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" />
-      </router-link>
     </section>
 
     <p v-if="!isSupabaseConfigured" class="admin-note">Configure the Northstar Supabase project to load organization
