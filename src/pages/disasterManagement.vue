@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import NorthstarBackButton from '@/components/NorthstarBackButton.vue'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
 type IncidentStatus = 'open' | 'investigating' | 'resolved' | 'closed'
@@ -272,6 +273,7 @@ onUnmounted(() => {
   <main class="disaster-dashboard">
     <header class="dashboard-header">
       <div class="heading-copy">
+        <NorthstarBackButton />
         <span class="heading-icon"><v-icon icon="mdi-shield-alert-outline" size="23" /></span>
         <div>
           <p class="eyebrow">BUSINESS CONTINUITY</p>
@@ -433,7 +435,7 @@ onUnmounted(() => {
 <style scoped>
 .disaster-dashboard { display: grid; gap: 22px; color: var(--ns-text-18352d, #18352d); }
 .dashboard-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 4px 0 2px; }
-.heading-copy { display: flex; align-items: flex-start; gap: 15px; }
+.heading-copy { display: flex; align-items: flex-start; gap: 12px; }
 .heading-icon { display: grid; flex: 0 0 48px; width: 48px; height: 48px; place-items: center; border: 1px solid var(--ns-border-e6e9df, #e6e9df); border-radius: 14px; background: var(--ns-bg-fff, #fff); color: var(--ns-text-557262, #557262); }
 .eyebrow { margin: 0 0 7px; color: var(--ns-text-71897b, #71897b); font: 9px "DM Mono", monospace; letter-spacing: 1.3px; }
 .dashboard-header h1 { margin: 0; color: var(--ns-text-18352d, #18352d); font-size: clamp(25px, 3vw, 34px); letter-spacing: -1.2px; }

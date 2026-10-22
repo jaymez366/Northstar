@@ -1,12 +1,14 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
+  import NorthstarBackButton from '@/components/NorthstarBackButton.vue'
   import { useAuthStore } from '@/stores/auth'
   import { useWorkspaceStore } from '@/stores/workspace'
 
   const message = ref('')
   const title = ref('')
   const error = ref('')
+  const loadError = ref('')
   const auth = useAuthStore()
   const workspace = useWorkspaceStore()
   const router = useRouter()
@@ -15,6 +17,12 @@
     && auth.canAccessEmployeeWorkspace)
   const audienceDepartments = computed(() => workspace.departments.slice(0, 3))
   const recentUpdates = computed(() => workspace.announcements.slice(0, 2))
+
+  onMounted(async () => {
+    if (!auth.isAdmin) return
+    const announcementError = await workspace.loadAnnouncements()
+    if (announcementError) loadError.value = `Recent announcements could not be loaded: ${announcementError}`
+  })
 
   async function sendUpdate () {
     error.value = ''
@@ -37,15 +45,18 @@
 
 <template>
   <main class="communication-page">
-    <section class="page-intro">
-      <p class="eyebrow">EMPLOYEE COMMUNICATION</p>
-      <h1>Give every employee<br><em>the same signal.</em></h1>
+    <div class="communication-heading">
+      <NorthstarBackButton />
+      <section class="page-intro">
+        <p class="eyebrow">EMPLOYEE COMMUNICATION</p>
+        <h1>Give every employee<br><em>the same signal.</em></h1>
 
-      <p class="intro-copy">
-        One calm place to write, target, and measure the updates that keep your
-        organization moving together.
-      </p>
-    </section>
+        <p class="intro-copy">
+          One calm place to write, target, and measure the updates that keep your
+          organization moving together.
+        </p>
+      </section>
+    </div>
 
     <section aria-label="Employee communication workspace" class="workspace">
       <div v-if="canPublishAnnouncement" class="composer-panel">
@@ -134,7 +145,8 @@
         <span class="delivered"><v-icon icon="mdi-check-circle" size="15" /> Published</span>
       </div>
 
-      <p v-if="recentUpdates.length === 0" class="no-updates">No announcements have been published yet.</p>
+      <p v-if="loadError" class="form-error" role="alert">{{ loadError }}</p>
+      <p v-else-if="recentUpdates.length === 0" class="no-updates">No announcements have been published yet.</p>
     </section>
   </main>
 </template>
@@ -221,6 +233,8 @@
   padding: 82px 0 65px;
   max-width: 720px;
 }
+.communication-heading { display: flex; align-items: flex-start; gap: 12px; }
+.communication-heading > :deep(.northstar-back-button) { margin-top: 83px; }
 .page-intro h1 {
   margin: 22px 0;
   font-size: clamp(42px, 6vw, 72px);
@@ -245,8 +259,12 @@
 .composer-panel,
 .insight-panel {
   padding: 32px;
-  border: 1px solid var(--ns-border-cdd6ca, #cdd6ca);
-  background: var(--ns-bg-fffdf5, #fffdf5);
+  border: 1px solid var(--ns-announcement-border, #e5ddd1);
+  border-radius: 16px;
+  box-shadow: var(--ns-announcement-shadow, 0 10px 28px rgb(45 39 29 / 7%));
+}
+.composer-panel {
+  background: var(--ns-announcement-surface, #fffaf3);
 }
 .panel-heading {
   display: flex;
@@ -280,9 +298,9 @@ label {
 textarea {
   width: 100%;
   resize: vertical;
-  border: 1px solid var(--ns-border-cdd6ca, #cdd6ca);
+  border: 1px solid var(--ns-announcement-border, #e5ddd1);
   padding: 16px;
-  background: var(--ns-bg-f3f5ef, #f3f5ef);
+  background: var(--ns-announcement-field, #fff);
   color: var(--ns-text-18352d, #18352d);
   font:
     14px/1.7 "Manrope",
@@ -292,8 +310,9 @@ textarea {
 .update-title {
   width: 100%;
   margin-bottom: 12px;
-  border: 1px solid var(--ns-border-cdd6ca, #cdd6ca);
+  border: 1px solid var(--ns-announcement-border, #e5ddd1);
   padding: 13px 15px;
+  background: var(--ns-announcement-field, #fff);
   color: var(--ns-text-18352d, #18352d);
   font: 600 12px "Manrope", sans-serif;
 }
@@ -330,7 +349,7 @@ textarea:focus {
   background: var(--ns-primary-hover);
 }
 .insight-panel {
-  background: var(--ns-bg-dce7d5, #dce7d5);
+  background: var(--ns-announcement-muted, #f1eee8);
 }
 .insight-panel > .eyebrow {
   color: var(--ns-text-61756a, #61756a);
@@ -471,6 +490,7 @@ textarea:focus {
   .page-intro {
     padding: 62px 0 48px;
   }
+  .communication-heading > :deep(.northstar-back-button) { margin-top: 63px; }
   .page-intro h1 {
     letter-spacing: -2.5px;
   }

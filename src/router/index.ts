@@ -122,7 +122,7 @@ const router = createRouter({
     {
       path: '/employee-communication',
       component: EmployeeCommunication,
-      meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowDesignatedAdmin: true, adminReadable: true },
     },
     {
       path: '/disaster-management',

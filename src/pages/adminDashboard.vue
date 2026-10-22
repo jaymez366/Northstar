@@ -897,7 +897,7 @@ onMounted(() => {
           <div class="approval-details"><strong>{{ inquiry.full_name }} · {{ inquiry.topic }}</strong><span>{{
               inquiry.email
               }} · {{ inquiry.status }}</span><small>{{ formatRecordDate(inquiry.created_at) }}</small></div>
-          <button class="details-button" type="button" @click="openSupportInquiry(inquiry)">Open inquiry</button>
+          <v-btn class="open-inquiry-button" size="small" density="comfortable" variant="tonal" type="button" @click="openSupportInquiry(inquiry)">Open inquiry</v-btn>
         </article>
         </div>
       </div>
@@ -950,6 +950,12 @@ onMounted(() => {
         <span><v-icon icon="mdi-bullhorn-outline" /></span>
         <strong>Employee announcements</strong>
         <small>Read updates published by employees</small>
+        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" />
+      </router-link>
+      <router-link class="surface-card admin-link-card" to="/employee-communication">
+        <span><v-icon icon="mdi-message-text-outline" /></span>
+        <strong>Employee communication</strong>
+        <small>Review the employee communication workspace</small>
         <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" />
       </router-link>
     </section>
@@ -1134,6 +1140,8 @@ onMounted(() => {
 .rejection-reason {
   color: var(--ns-text-a34c39, #a34c39) !important;
 }
+
+.open-inquiry-button { min-width: 0; min-height: 30px; padding-inline: 9px; font-size: 11px; letter-spacing: 0; }
 
 .employee-detail-dialog {
   color: var(--ns-text-18352d, #18352d);
