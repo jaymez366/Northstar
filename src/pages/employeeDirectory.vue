@@ -47,7 +47,7 @@ function isUuid (value: string): boolean {
           <span class="employee-avatar"
             :style="employee.photoUrl ? { backgroundImage: `url(${employee.photoUrl})` } : { background: employee.color }">{{
               employee.photoUrl ? '' : employee.initials }}</span>
-          <span class="presence" :class="{ online: employee.online }"><i />{{ employee.online ? 'Online' : 'Offline'
+          <span class="presence" :class="{ online: employee.online === true }"><i />{{ employee.online === true ? 'Online' : employee.online === false ? 'Offline' : 'Status unavailable'
             }}</span>
         </div>
 

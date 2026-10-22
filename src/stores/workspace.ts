@@ -14,7 +14,7 @@ export type Employee = {
   department: string
   email: string
   phone: string
-  online: boolean
+  online: boolean | null
   initials: string
   color: string
   photoUrl?: string
@@ -36,6 +36,7 @@ export type ChatMessage = {
   author: string
   text: string
   sentAt: string
+  createdAt: string
   mine: boolean
 }
 
@@ -46,7 +47,7 @@ export type Conversation = {
   title: string
   initials: string
   color: string
-  online: boolean
+  online: boolean | null
   unread: number
   updatedAt: string
   messages: ChatMessage[]
@@ -94,11 +95,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const departmentList = ref<{ id: string, name: string, description: string }[]>([])
   const activityLogs = ref<{ id: string, action: string, description: string, createdAt: string, user: string }[]>([])
   const backendError = ref('')
+  const messageSyncError = ref('')
   const messageToast = ref<{ title: string, preview: string, conversationId: string, notificationId: string } | null>(null)
   const loading = ref(false)
   let realtimeChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   let notificationChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   let messageToastTimer: ReturnType<typeof setTimeout> | undefined
+  let conversationRefreshPromise: Promise<string> | null = null
   const unreadNotifications = computed(() => notificationList.value.filter(item => item.unread).length)
   const departments = computed(() => {
     return departmentList.value.map(department => ({
@@ -217,7 +220,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           department: department?.name ?? '',
           email: row.email ?? '',
           phone: '',
-          online: false,
+          online: null,
           initials: `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase(),
           color: avatarColors[(row.id.codePointAt(0) ?? 0) % avatarColors.length] ?? '#dce8ba',
           photoUrl,
@@ -333,55 +336,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }))
     }
 
-    const { data: memberships, error: membershipError } = await supabase
-      .from('conversation_members')
-      .select('conversation_id,last_read_at')
-      .eq('user_id', auth.userId)
-    if (membershipError) {
-      recordError('conversation memberships', membershipError)
-    } else {
-      const conversationIds = [...new Set((memberships ?? []).map(row => row.conversation_id).filter(isUuid))]
-      if (conversationIds.length === 0) {
-        conversations.value = []
-      } else {
-        const { data: conversationRows, error: conversationError } = await supabase
-          .from('conversations')
-          .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at)')
-          .in('id', conversationIds)
-          .order('updated_at', { ascending: false })
-        if (conversationError) {
-          recordError('conversations', conversationError)
-        } else {
-          conversations.value = (conversationRows ?? []).map(row => {
-            const members = Array.isArray(row.conversation_members) ? row.conversation_members : []
-            const peer = members.find((member: { user_id: string }) => member.user_id !== auth.userId)
-            const ownMembership = members.find((member: { user_id: string }) => member.user_id === auth.userId)
-            const peerProfile = relationOne(peer?.profile)
-            const firstName = peerProfile?.first_name ?? 'Colleague'
-            const lastName = peerProfile?.last_name ?? ''
-            const messages = sortByCreatedAt(Array.isArray(row.messages) ? row.messages : [])
-            return {
-              id: row.id,
-              employeeId: peer?.user_id ?? '',
-              name: `${firstName} ${lastName}`.trim(),
-              title: peerProfile?.job_title ?? '',
-              initials: `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase(),
-              color: '#dce8ba',
-              online: false,
-              unread: messages.filter((message: { sender_id: string, created_at: string }) => message.sender_id !== auth.userId && (!ownMembership?.last_read_at || message.created_at > ownMembership.last_read_at)).length,
-              updatedAt: row.updated_at ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(row.updated_at)) : '',
-              messages: messages.map((message: { id: string, sender_id: string, content: string, created_at: string }) => ({
-                id: message.id,
-                author: message.sender_id === auth.userId ? 'You' : `${firstName} ${lastName}`.trim(),
-                text: message.content,
-                sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(message.created_at)),
-                mine: message.sender_id === auth.userId,
-              })),
-            }
-          })
-        }
-      }
-    }
+    const conversationRefreshError = await refreshConversations()
+    if (conversationRefreshError) recordError('conversations', { message: conversationRefreshError })
 
     if (auth.isAdmin) {
       const { data: activityRows, error: activityError } = await supabase
@@ -422,7 +378,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         const message = payload.new as { id: string, conversation_id: string, sender_id: string, content: string, created_at: string }
         if (!isUuid(message.id) || !isUuid(message.conversation_id) || !isUuid(message.sender_id)) return
         const conversation = conversations.value.find(item => item.id === message.conversation_id)
-        if (!conversation || conversation.messages.some(item => item.id === message.id)) {
+        if (!conversation) {
+          void refreshConversations()
+          return
+        }
+        if (conversation.messages.some(item => item.id === message.id)) {
           return
         }
         const sender = employeeList.value.find(item => item.id === message.sender_id)
@@ -431,15 +391,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           author: message.sender_id === useAuthStore().userId ? 'You' : (sender ? `${sender.firstName} ${sender.lastName}` : conversation.name),
           text: message.content,
           sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(message.created_at)),
+          createdAt: message.created_at,
           mine: message.sender_id === useAuthStore().userId,
         })
+        conversation.messages.sort(compareChatMessages)
         if (message.sender_id !== useAuthStore().userId) {
           conversation.unread += 1
         }
         conversation.updatedAt = 'Now'
+        conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
       })
       .subscribe(status => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        if (status === 'SUBSCRIBED') {
+          messageSyncError.value = ''
+          void refreshConversations()
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          messageSyncError.value = `Message updates are temporarily unavailable (${status}). Use Refresh messages to check for new activity.`
           backendError.value = `Supabase Realtime subscription failed: ${status}`
           console.error(backendError.value)
         }
@@ -476,6 +443,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           to: notificationRoute(notification.notification_type, notification.title, notification.link_to),
         })
         if (notification.notification_type === 'message') {
+          void refreshConversations()
           const conversationId = notification.link_to?.match(/[?&]conversation=([0-9a-f-]+)/i)?.[1] ?? ''
           if (messageToastTimer) clearTimeout(messageToastTimer)
           messageToast.value = { title: notification.title, preview: notification.message, conversationId, notificationId: notification.id }
@@ -483,7 +451,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         }
       })
       .subscribe(status => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        if (status === 'SUBSCRIBED') {
+          void refreshConversations()
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           backendError.value = `Supabase notification subscription failed: ${status}`
           console.error(backendError.value)
         }
@@ -514,7 +484,68 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     departmentList.value = []
     activityLogs.value = []
     backendError.value = ''
+    messageSyncError.value = ''
     loading.value = false
+  }
+
+  function refreshConversations () {
+    if (conversationRefreshPromise) return conversationRefreshPromise
+    conversationRefreshPromise = loadConversations().finally(() => { conversationRefreshPromise = null })
+    return conversationRefreshPromise
+  }
+
+  async function loadConversations () {
+    const auth = useAuthStore()
+    if (!isUuid(auth.userId) || auth.isAdmin || !auth.canAccessEmployeeWorkspace || !isSupabaseConfigured || !supabase) {
+      return 'Messaging requires an authenticated employee workspace and configured Supabase connection.'
+    }
+    const { data: memberships, error: membershipError } = await supabase
+      .from('conversation_members')
+      .select('conversation_id,last_read_at')
+      .eq('user_id', auth.userId)
+    if (membershipError) return membershipError.message
+    const ids = [...new Set((memberships ?? []).map(row => row.conversation_id).filter(isUuid))]
+    if (ids.length === 0) {
+      conversations.value = []
+      return ''
+    }
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at)')
+      .in('id', ids)
+      .order('updated_at', { ascending: false })
+    if (error) return error.message
+
+    conversations.value = (data ?? []).map(row => {
+      const members = Array.isArray(row.conversation_members) ? row.conversation_members : []
+      const peer = members.find((member: { user_id: string }) => member.user_id !== auth.userId)
+      const ownMembership = members.find((member: { user_id: string }) => member.user_id === auth.userId)
+      const profile = relationOne(peer?.profile)
+      const firstName = profile?.first_name ?? 'Colleague'
+      const lastName = profile?.last_name ?? ''
+      const messages = sortByCreatedAt(Array.isArray(row.messages) ? row.messages : [])
+      return {
+        id: row.id,
+        employeeId: peer?.user_id ?? '',
+        name: `${firstName} ${lastName}`.trim(),
+        title: profile?.job_title ?? '',
+        initials: `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase(),
+        color: '#dce8ba',
+        online: null,
+        unread: messages.filter((message: { sender_id: string, created_at: string }) => message.sender_id !== auth.userId && (!ownMembership?.last_read_at || message.created_at > ownMembership.last_read_at)).length,
+        updatedAt: row.updated_at ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(row.updated_at)) : '',
+        messages: messages.map((message: { id: string, sender_id: string, content: string, created_at: string }) => ({
+          id: message.id,
+          author: message.sender_id === auth.userId ? 'You' : `${firstName} ${lastName}`.trim(),
+          text: message.content,
+          sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(message.created_at)),
+          createdAt: message.created_at,
+          mine: message.sender_id === auth.userId,
+        })),
+      }
+    }).filter(item => item.messages.length > 0)
+    conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
+    return ''
   }
 
   async function startConversation (employeeId: string) {
@@ -537,23 +568,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (typeof data !== 'string') {
       return ''
     }
-    const employee = employeeList.value.find(item => item.id === employeeId)
-    if (!employee) {
-      return ''
-    }
-    conversations.value.unshift({
-      id: data,
-      employeeId,
-      name: `${employee.firstName} ${employee.lastName}`,
-      title: employee.title,
-      initials: employee.initials,
-      color: employee.color,
-      online: employee.online,
-      unread: 0,
-      updatedAt: 'Now',
-      messages: [],
-    })
     return data
+  }
+
+  async function sendFirstMessage (employeeId: string, text: string) {
+    const trimmed = text.trim()
+    if (!trimmed) return false
+    const id = await startConversation(employeeId)
+    if (!id || !isSupabaseConfigured || !supabase) return false
+    const { error } = await supabase.from('messages').insert({ conversation_id: id, content: trimmed })
+    if (error) {
+      backendError.value = `Could not send message: ${error.message}`
+      console.error(backendError.value, error)
+      return false
+    }
+    const refreshError = await refreshConversations()
+    if (refreshError) backendError.value = `Message sent, but the conversation could not be refreshed: ${refreshError}`
+    else backendError.value = ''
+    return true
   }
 
   async function sendMessage (conversationId: string, text: string) {
@@ -584,10 +616,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         author: 'You',
         text: data.content,
         sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(data.created_at)),
+        createdAt: data.created_at,
         mine: true,
       })
     }
     conversation.updatedAt = 'Now'
+    conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
     backendError.value = ''
     return true
   }
@@ -786,11 +820,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     resources: resourceList,
     activityLogs,
     backendError,
+    messageSyncError,
     messageToast,
     dismissMessageToast: () => { messageToast.value = null },
     loading,
     load,
     loadAnnouncements,
+    refreshConversations,
     subscribeToMessages,
     unsubscribeFromMessages,
     clearWorkspace,
@@ -798,6 +834,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     departments,
     unreadNotifications,
     sendMessage,
+    sendFirstMessage,
     markConversationRead,
     markNotificationRead,
     markAllNotificationsRead,
@@ -815,9 +852,9 @@ function relationOne<T> (value: T | T[] | null | undefined): T | undefined {
   return Array.isArray(value) ? value[0] : value ?? undefined
 }
 
-function sortByCreatedAt<T extends { created_at: string }> (rows: T[]): T[] {
+function sortByCreatedAt<T extends { created_at: string, id: string }> (rows: T[]): T[] {
   return rows.reduce<T[]>((sorted, row) => {
-    const insertAt = sorted.findIndex(existing => Date.parse(existing.created_at) > Date.parse(row.created_at))
+    const insertAt = sorted.findIndex(existing => compareChatMessages(existing, row) > 0)
     if (insertAt === -1) {
       sorted.push(row)
     } else {
@@ -825,6 +862,12 @@ function sortByCreatedAt<T extends { created_at: string }> (rows: T[]): T[] {
     }
     return sorted
   }, [])
+}
+
+function compareChatMessages (left: { created_at?: string, createdAt?: string, id: string }, right: { created_at?: string, createdAt?: string, id: string }) {
+  const leftTime = Date.parse(left.created_at ?? left.createdAt ?? '')
+  const rightTime = Date.parse(right.created_at ?? right.createdAt ?? '')
+  return leftTime - rightTime || left.id.localeCompare(right.id)
 }
 
 function notificationCategory (type: string): WorkspaceNotification['category'] {

@@ -48,6 +48,7 @@ const route = useRoute()
 const incidents = ref<Incident[]>([])
 const updates = ref<IncidentUpdate[]>([])
 const responders = ref<Responder[]>([])
+const incidentCounts = ref({ total: 0, active: 0, resolved: 0, critical: 0 })
 const loading = ref(false)
 const submitting = ref(false)
 const savingIncidentId = ref('')
@@ -80,15 +81,15 @@ const filteredIncidents = computed(() => {
       .some(value => value.toLowerCase().includes(query)))
 })
 const overviewItems = computed(() => [
-  { label: 'Total incidents', icon: 'mdi-alert-circle-outline', tone: 'green', value: loading.value ? '…' : loadError.value ? '—' : incidents.value.length },
-  { label: 'Active incidents', icon: 'mdi-radio-tower', tone: 'amber', value: loading.value ? '…' : loadError.value ? '—' : incidents.value.filter(item => ['open', 'investigating'].includes(item.status)).length },
-  { label: 'Resolved incidents', icon: 'mdi-check-circle-outline', tone: 'blue', value: loading.value ? '…' : loadError.value ? '—' : incidents.value.filter(item => ['resolved', 'closed'].includes(item.status)).length },
-  { label: 'Critical incidents', icon: 'mdi-alert-octagon-outline', tone: 'red', value: loading.value ? '…' : loadError.value ? '—' : incidents.value.filter(item => item.severity === 'critical').length },
+  { label: 'Total incidents', icon: 'mdi-alert-circle-outline', tone: 'green', value: loading.value ? '…' : loadError.value ? '—' : incidentCounts.value.total },
+  { label: 'Active incidents', icon: 'mdi-radio-tower', tone: 'amber', value: loading.value ? '…' : loadError.value ? '—' : incidentCounts.value.active },
+  { label: 'Resolved incidents', icon: 'mdi-check-circle-outline', tone: 'blue', value: loading.value ? '…' : loadError.value ? '—' : incidentCounts.value.resolved },
+  { label: 'Critical incidents', icon: 'mdi-alert-octagon-outline', tone: 'red', value: loading.value ? '…' : loadError.value ? '—' : incidentCounts.value.critical },
 ])
 const resourceItems = [
-  { title: 'Response plans', description: 'Approved disaster response plans will appear here.', icon: 'mdi-clipboard-text-outline' },
-  { title: 'Emergency contacts', description: 'Verified organization contacts are not configured.', icon: 'mdi-card-account-phone-outline' },
-  { title: 'Safety guidance', description: 'Approved safety guidance is not available in this workspace.', icon: 'mdi-shield-check-outline' },
+  { title: 'Response plans', description: 'No approved response plans are available in Northstar yet.', icon: 'mdi-clipboard-text-outline' },
+  { title: 'Emergency contacts', description: 'Verified organization emergency contacts are not available in Northstar yet.', icon: 'mdi-card-account-phone-outline' },
+  { title: 'Safety guidance', description: 'No approved safety guidance is available in Northstar yet.', icon: 'mdi-shield-check-outline' },
 ]
 let incidentChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
 
@@ -101,6 +102,12 @@ function employeeLabel(id: string | null) {
   if (id === auth.userId) return 'You'
   const responder = responders.value.find(item => item.user_id === id)
   return responder ? `${responder.first_name} ${responder.last_name}`.trim() : 'Assigned employee'
+}
+
+function reporterLabel(id: string) {
+  if (id === auth.userId) return 'You'
+  const responder = responders.value.find(item => item.user_id === id)
+  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : 'Employee'
 }
 
 function historyFor(incidentId: string) {
@@ -125,8 +132,22 @@ async function loadIncidents() {
     ])
     if (incidentResult.error) throw new Error(`Could not load incident reports: ${incidentResult.error.message}`)
     if (updateResult.error) throw new Error(`Could not load incident history: ${updateResult.error.message}`)
+    const [totalResult, activeResult, resolvedResult, criticalResult] = await Promise.all([
+      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }),
+      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'investigating']),
+      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
+      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('severity', 'critical').in('status', ['open', 'investigating']),
+    ])
+    const countError = [totalResult, activeResult, resolvedResult, criticalResult].find(result => result.error)?.error
+    if (countError) throw new Error(`Could not load incident counts: ${countError.message}`)
     incidents.value = (incidentResult.data ?? []) as Incident[]
     updates.value = (updateResult.data ?? []) as IncidentUpdate[]
+    incidentCounts.value = {
+      total: totalResult.count ?? 0,
+      active: activeResult.count ?? 0,
+      resolved: resolvedResult.count ?? 0,
+      critical: criticalResult.count ?? 0,
+    }
     const linkedIncidentId = typeof route.query.incident === 'string' ? route.query.incident : ''
     if (incidents.value.some(incident => incident.id === linkedIncidentId)) {
       expandedIncidentId.value = linkedIncidentId
@@ -278,7 +299,7 @@ onUnmounted(() => {
         <div>
           <p class="eyebrow">BUSINESS CONTINUITY</p>
           <h1>Disaster Management</h1>
-          <p class="intro">A central view for incident awareness, response coordination, and preparedness resources.</p>
+          <p class="intro">{{ isDesignatedAdmin ? 'Review reports, coordinate incident response, and track verified preparedness resources.' : 'Find preparedness information and report incidents visible to your account.' }}</p>
         </div>
       </div>
       <div class="connection-state" :class="{ connected: !loadError && !loading, failed: Boolean(loadError) }">
@@ -302,10 +323,10 @@ onUnmounted(() => {
       <div class="section-heading">
         <div>
           <p class="eyebrow">LIVE RESPONSE</p>
-          <h2 id="active-incidents-heading">Active emergencies</h2>
-          <p class="section-description">Current incidents and their response status.</p>
+          <h2 id="active-incidents-heading">{{ isDesignatedAdmin ? 'Active emergencies' : 'Your active incidents' }}</h2>
+          <p class="section-description">{{ isDesignatedAdmin ? 'Current incidents and their response status.' : 'Current incidents reported by or assigned to your account.' }}</p>
         </div>
-        <span class="section-count">{{ loading ? 'Loading' : `${incidents.filter(item => ['open', 'investigating'].includes(item.status)).length} active` }}</span>
+        <span class="section-count">{{ loading ? 'Loading' : `${incidentCounts.active} active` }}</span>
       </div>
       <div v-if="loadError" class="empty-panel error-panel" role="alert">
         <span class="empty-icon"><v-icon icon="mdi-alert-circle-outline" size="22" /></span>
@@ -315,7 +336,7 @@ onUnmounted(() => {
         <v-progress-circular aria-label="Loading incidents" indeterminate size="22" width="2" />
         <div><strong>Loading incident records</strong><p>Checking the incidents available to your account.</p></div>
       </div>
-      <div v-else-if="incidents.filter(item => ['open', 'investigating'].includes(item.status)).length === 0" class="empty-panel">
+      <div v-else-if="incidentCounts.active === 0" class="empty-panel">
         <span class="empty-icon"><v-icon icon="mdi-broadcast-off" size="22" /></span>
         <div>
           <strong>No active emergencies</strong>
@@ -332,7 +353,7 @@ onUnmounted(() => {
     </section>
 
     <section v-if="canReportIncident" class="section-card surface-card report-section" aria-labelledby="report-incident-heading">
-      <div class="section-heading"><div><p class="eyebrow">EMPLOYEE REPORTING</p><h2 id="report-incident-heading">Report an incident</h2><p class="section-description">Your report is linked to your signed-in Northstar account.</p></div></div>
+      <div class="section-heading"><div><p class="eyebrow">EMPLOYEE REPORTING</p><h2 id="report-incident-heading">Report an incident</h2><p class="section-description">Incident reports are tracked separately from support inquiries. For non-emergency questions or professional guidance, <router-link to="/start-conversation">Talk to an Expert</router-link>.</p></div></div>
       <form class="incident-form" @submit.prevent="submitIncident">
         <label class="form-field"><span>Incident title</span><input v-model="reportForm.title" required minlength="5" maxlength="180" autocomplete="off" placeholder="Briefly describe the incident"></label>
         <label class="form-field"><span>Category</span><select v-model="reportForm.category" required><option disabled value="">Select category</option><option v-for="category in reportCategories" :key="category.value" :value="category.value">{{ category.label }}</option></select></label>
@@ -349,8 +370,8 @@ onUnmounted(() => {
       <div class="section-heading register-heading">
         <div>
           <p class="eyebrow">INCIDENT REGISTER</p>
-          <h2 id="incident-register-heading">Reported incidents</h2>
-          <p class="section-description">Searchable incident records with severity, ownership, and status.</p>
+          <h2 id="incident-register-heading">{{ isDesignatedAdmin ? 'Incident register' : 'Incidents available to you' }}</h2>
+          <p class="section-description">{{ isDesignatedAdmin ? 'Searchable incident records with severity, ownership, status, and history.' : 'Only reports you submitted or incidents assigned to you are available here.' }}</p>
         </div>
         <button class="details-button refresh-button" :disabled="loading" type="button" @click="loadIncidents">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
         <label class="search-field">
@@ -389,7 +410,7 @@ onUnmounted(() => {
               <td>{{ incident.category.replaceAll('_', ' ') }}</td>
               <td>{{ incident.location }}</td>
               <td><span class="severity-pill" :class="incident.severity">{{ incident.severity }}</span></td>
-              <td>{{ incident.reported_by === auth.userId ? 'You' : 'Employee' }}</td>
+              <td>{{ reporterLabel(incident.reported_by) }}</td>
               <td>{{ formatDate(incident.reported_at) }}</td>
               <td><span class="status-pill" :class="incident.status">{{ incident.status }}</span></td>
               <td><button class="details-button" type="button" @click="expandedIncidentId = expandedIncidentId === incident.id ? '' : incident.id">{{ expandedIncidentId === incident.id ? 'Hide details' : 'Details' }}</button></td>
@@ -397,7 +418,7 @@ onUnmounted(() => {
             <tr v-if="expandedIncidentId === incident.id" class="detail-row">
               <td colspan="8">
                 <div class="incident-detail">
-                  <div class="incident-description"><p class="eyebrow">INCIDENT DESCRIPTION</p><p>{{ incident.description }}</p><p><strong>Reported:</strong> {{ formatDate(incident.reported_at) }} <span v-if="incident.assigned_responder"> · <strong>Responder:</strong> {{ employeeLabel(incident.assigned_responder) }}</span></p><p v-if="incident.resolution_details"><strong>Resolution:</strong> {{ incident.resolution_details }}</p></div>
+                  <div class="incident-description"><p class="eyebrow">INCIDENT DESCRIPTION</p><p>{{ incident.description }}</p><p><strong>Reported by:</strong> {{ reporterLabel(incident.reported_by) }} · <strong>Reported:</strong> {{ formatDate(incident.reported_at) }} <span v-if="incident.assigned_responder"> · <strong>Responder:</strong> {{ employeeLabel(incident.assigned_responder) }}</span></p><p v-if="incident.resolution_details"><strong>Resolution:</strong> {{ incident.resolution_details }}</p></div>
                   <section class="history-section"><h3>Incident history</h3><p v-if="historyFor(incident.id).length === 0" class="history-empty">No updates are visible for this incident.</p><ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ update.event_type.replaceAll('_', ' ') }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${update.old_status} → ` : '' }}{{ update.new_status }}</small><small v-if="update.new_severity">Severity: {{ update.old_severity ? `${update.old_severity} → ` : '' }}{{ update.new_severity }}</small><small v-if="update.event_type === 'responder_changed' || update.new_assigned_responder">Responder: {{ employeeLabel(update.new_assigned_responder) }}</small><small v-if="update.new_resolution_details">Resolution: {{ update.new_resolution_details }}</small></div></li></ol></section>
                   <section v-if="isDesignatedAdmin" class="admin-update-panel"><h3>Administrator incident controls</h3><label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option value="admin">Private admin note</option></select></label><p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p><div class="admin-fields"><label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ status }}</option></select></label><label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severity }}</option></select></label><label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ `${responder.first_name} ${responder.last_name}`.trim() }}</option></select></label></div><label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label><label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note' : 'Update for the selected audience' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Add useful response details"></textarea></label><p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p><button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button></section>
                 </div>
@@ -416,6 +437,7 @@ onUnmounted(() => {
           <p class="section-description">Verified guidance and contacts for your organization.</p>
         </div>
       </div>
+      <p v-if="!isDesignatedAdmin" class="resource-safety-note">If there is immediate danger, follow your organization’s established emergency procedures and contact local emergency services directly.</p>
       <div class="resource-grid">
         <article v-for="resource in resourceItems" :key="resource.title" class="resource-card surface-card">
           <span class="resource-icon"><v-icon :icon="resource.icon" size="20" /></span>
@@ -527,6 +549,8 @@ th:first-child { padding-left: 20px; }
 .table-empty span { max-width: 440px; color: var(--ns-text-829187, #829187); font-size: 10px; line-height: 1.6; }
 .preparedness-section { display: grid; gap: 13px; }
 .preparedness-section > .section-heading { padding: 0 2px; }
+.resource-safety-note { margin: 0; border-left: 3px solid var(--ns-primary); padding: 10px 12px; background: var(--ns-blue-soft); color: var(--ns-text-primary); font-size: 10px; line-height: 1.6; }
+.report-section .section-description a { color: var(--ns-primary); font-weight: 700; text-underline-offset: 2px; }
 .resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
 .resource-card { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: start; gap: 11px; border-radius: 11px; padding: 16px; }
 .resource-icon { display: grid; width: 35px; height: 35px; place-items: center; border-radius: 9px; background: var(--ns-bg-f0f4ec, #f0f4ec); color: var(--ns-text-617a68, #617a68); }

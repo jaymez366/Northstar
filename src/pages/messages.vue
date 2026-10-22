@@ -9,9 +9,25 @@
   const search = ref('')
   const draft = ref('')
   const selectedId = ref(typeof route.query.conversation === 'string' ? route.query.conversation : '')
-  const startingEmployeeId = ref('')
+  const refreshing = ref(false)
+  const refreshError = ref('')
+  const sending = ref(false)
+  const nearBottom = ref(true)
   const messageList = ref<HTMLElement | null>(null)
   const selectedConversation = computed(() => workspace.conversations.find(item => item.id === selectedId.value))
+  const composingEmployee = computed(() => {
+    const employeeId = typeof route.query.employee === 'string' ? route.query.employee : ''
+    return employeeId ? workspace.employees.find(item => item.id === employeeId) : undefined
+  })
+  const displayEmployee = computed(() => selectedConversation.value ? {
+    id: selectedConversation.value.employeeId,
+    firstName: selectedConversation.value.name.split(' ')[0] ?? 'Colleague',
+    lastName: selectedConversation.value.name.split(' ').slice(1).join(' '),
+    title: selectedConversation.value.title,
+    email: workspace.employees.find(item => item.id === selectedConversation.value?.employeeId)?.email ?? '',
+    initials: selectedConversation.value.initials,
+    color: selectedConversation.value.color,
+  } : composingEmployee.value)
   const filteredConversations = computed(() => workspace.conversations.filter(item => item.name.toLowerCase().includes(search.value.trim().toLowerCase())))
 
   watch(() => [route.query.conversation, route.query.employee, workspace.conversations.length, workspace.employees.length], async () => {
@@ -34,24 +50,17 @@
       return
     }
 
-    if (startingEmployeeId.value === employeeId) return
-    startingEmployeeId.value = employeeId
-    try {
-      const id = await workspace.startConversation(employeeId)
-      if (id && route.query.employee === employeeId) {
-        selectedId.value = id
-        await router.replace({ path: '/messages', query: { conversation: id } })
-      }
-    } finally {
-      startingEmployeeId.value = ''
-    }
+    selectedId.value = ''
   }, { immediate: true })
 
   watch(() => selectedConversation.value?.id, conversationId => {
+    nearBottom.value = true
     if (conversationId) void workspace.markConversationRead(conversationId)
   }, { immediate: true })
 
-  watch(() => selectedConversation.value?.messages.length, async () => {
+  watch(() => selectedConversation.value?.messages.length, async (length, previousLength) => {
+    if (selectedConversation.value && length !== previousLength) void workspace.markConversationRead(selectedConversation.value.id)
+    if (length && previousLength !== undefined && length > previousLength && !nearBottom.value) return
     await nextTick()
     if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight
   }, { immediate: true })
@@ -69,10 +78,42 @@
   }
 
   async function send () {
-    if (!selectedConversation.value || !draft.value.trim()) return
-    if (await workspace.sendMessage(selectedConversation.value.id, draft.value)) {
+    if ((!selectedConversation.value && !composingEmployee.value) || !draft.value.trim() || sending.value) return
+    sending.value = true
+    const sent = selectedConversation.value
+      ? await workspace.sendMessage(selectedConversation.value.id, draft.value)
+      : await workspace.sendFirstMessage(composingEmployee.value!.id, draft.value)
+    if (sent) {
       draft.value = ''
+      if (!selectedConversation.value) {
+        const conversation = workspace.conversations.find(item => item.employeeId === composingEmployee.value?.id)
+        if (conversation) {
+          selectedId.value = conversation.id
+          await router.replace({ path: '/messages', query: { conversation: conversation.id } })
+        }
+      }
     }
+    sending.value = false
+  }
+
+  async function refreshMessages () {
+    if (refreshing.value) return
+    refreshing.value = true
+    refreshError.value = ''
+    try {
+      const error = await workspace.refreshConversations()
+      if (error) refreshError.value = error
+      if (selectedId.value && !workspace.conversations.some(item => item.id === selectedId.value)) selectedId.value = ''
+    } catch (error) {
+      refreshError.value = error instanceof Error ? error.message : 'Messages could not be refreshed.'
+    } finally {
+      refreshing.value = false
+    }
+  }
+
+  function trackMessageScroll () {
+    if (!messageList.value) return
+    nearBottom.value = messageList.value.scrollHeight - messageList.value.scrollTop - messageList.value.clientHeight < 80
   }
 </script>
 
@@ -80,9 +121,11 @@
   <main>
     <header class="page-heading"><div><p class="eyebrow">YOUR INBOX</p><h1>Messages</h1><p>Keep conversations moving with direct, thoughtful communication.</p></div><router-link class="secondary-action" to="/employees"><v-icon icon="mdi-plus" size="17" /> New message</router-link></header>
 
-    <section class="messaging-layout surface-card" :class="{ 'has-selected-conversation': Boolean(selectedConversation) }">
+    <section class="messaging-layout surface-card" :class="{ 'has-selected-conversation': Boolean(selectedConversation || composingEmployee) }">
       <aside class="conversation-sidebar">
-        <div class="inbox-heading"><strong>Inbox</strong><span>{{ workspace.conversations.length }}</span></div>
+        <div class="inbox-heading"><strong>Inbox</strong><span>{{ workspace.conversations.length }}</span><button class="refresh-button" type="button" aria-label="Refresh messages" title="Refresh messages" :disabled="refreshing" @click="refreshMessages"><v-icon icon="mdi-refresh" :class="{ spinning: refreshing }" size="17" /></button></div>
+        <p v-if="refreshError" class="refresh-error" role="alert">{{ refreshError }}</p>
+        <p v-else-if="workspace.messageSyncError" class="refresh-error" role="alert">{{ workspace.messageSyncError }}</p>
         <input v-model="search" aria-label="Search conversations" class="field-control conversation-search" placeholder="Search conversations">
 
         <button
@@ -92,7 +135,7 @@
           :class="{ selected: selectedId === conversation.id }"
           @click="selectConversation(conversation.id)"
         >
-          <span class="conversation-avatar" :style="{ background: conversation.color }">{{ conversation.initials }}<i :class="{ online: conversation.online }" /></span>
+          <span class="conversation-avatar" :style="{ background: conversation.color }">{{ conversation.initials }}<i v-if="conversation.online !== null" :class="{ online: conversation.online }" /></span>
           <span class="conversation-copy"><strong>{{ conversation.name }}</strong><small>{{ conversation.messages.at(-1)?.text }}</small></span>
           <span class="conversation-meta"><small>{{ conversation.updatedAt }}</small><b v-if="conversation.unread">{{ conversation.unread }}</b></span>
         </button>
@@ -103,18 +146,20 @@
         </div>
       </aside>
 
-      <section v-if="selectedConversation" class="chat-panel">
+      <section v-if="selectedConversation || composingEmployee" class="chat-panel">
         <header class="chat-header">
           <button class="conversation-back" type="button" @click="closeConversation">
             <v-icon icon="mdi-arrow-left" size="18" /> Back to inbox
           </button>
-          <span class="conversation-avatar large" :style="{ background: selectedConversation?.color }">{{ selectedConversation?.initials }}<i :class="{ online: selectedConversation?.online }" /></span>
-          <span><strong>{{ selectedConversation?.name }}</strong><small>{{ selectedConversation?.online ? 'Online now' : selectedConversation?.title }}</small></span>
-          <a class="chat-email" :href="`mailto:${workspace.employees.find(item => item.id === selectedConversation?.employeeId)?.email}`"><v-icon icon="mdi-email-outline" size="19" /></a>
+          <span class="conversation-avatar large" :style="{ background: displayEmployee?.color }">{{ displayEmployee?.initials }}</span>
+          <span><strong>{{ displayEmployee?.firstName }} {{ displayEmployee?.lastName }}</strong><small>{{ selectedConversation?.title || composingEmployee?.title || 'New message' }}</small></span>
+          <a v-if="displayEmployee?.email" class="chat-email" :href="`mailto:${displayEmployee.email}`"><v-icon icon="mdi-email-outline" size="19" /></a>
         </header>
 
-        <div ref="messageList" class="message-list">
+        <div ref="messageList" class="message-list" @scroll="trackMessageScroll">
           <div class="conversation-date">TODAY</div>
+
+          <p v-if="composingEmployee && !selectedConversation" class="first-message-hint">This is a temporary message draft. A conversation is created only when your first message is sent.</p>
 
           <article v-for="message in selectedConversation?.messages ?? []" :key="message.id" class="chat-message" :class="{ mine: message.mine }">
             <small v-if="!message.mine">{{ message.author }}</small>
@@ -125,7 +170,7 @@
 
         <form class="composer" @submit.prevent="send">
           <input v-model="draft" aria-label="Write a message" autocomplete="off" placeholder="Write a message...">
-          <button aria-label="Send message" :disabled="!draft.trim()" type="submit"><v-icon icon="mdi-send" size="18" /></button>
+          <button aria-label="Send message" :disabled="!draft.trim() || sending" type="submit"><v-icon icon="mdi-send" size="18" /></button>
         </form>
       </section>
 
@@ -138,6 +183,11 @@
 .messaging-layout { display: grid; min-height: 570px; grid-template-columns: 310px minmax(0, 1fr); overflow: hidden; }
 .conversation-sidebar { border-right: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
 .inbox-heading { display: flex; align-items: center; gap: 9px; padding: 17px 17px 12px; color: var(--ns-text-18352d, #18352d); font-size: 13px; }
+.refresh-button { display: grid; width: 30px; height: 30px; place-items: center; margin-left: auto; border: 1px solid var(--ns-border); border-radius: 8px; background: var(--ns-surface); color: var(--ns-primary); cursor: pointer; }
+.refresh-button:disabled { cursor: wait; opacity: .65; }
+.refresh-button .spinning { animation: refresh-spin .8s linear infinite; }
+.refresh-error { margin: 0 14px 10px; color: var(--ns-danger-text); font-size: 11px; line-height: 1.5; }
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
 .inbox-heading span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: var(--ns-bg-eef2e8, #eef2e8); color: var(--ns-text-60776b, #60776b); font-size: 9px; }
 .conversation-search { width: calc(100% - 30px); margin: 0 15px 10px; }
 .conversation-item { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; padding: 12px 14px; background: var(--ns-bg-fff, #fff); cursor: pointer; text-align: left; }
@@ -163,6 +213,7 @@
 .chat-email { margin-left: auto; color: var(--ns-text-71897b, #71897b); }
 .message-list { display: flex; flex: 1; flex-direction: column; gap: 15px; overflow-y: auto; padding: 22px; }
 .conversation-date { align-self: center; color: var(--ns-text-a1aaa2, #a1aaa2); font: 8px "DM Mono", monospace; letter-spacing: 1px; }
+.first-message-hint { align-self: center; max-width: 360px; color: var(--ns-text-secondary); font-size: 11px; line-height: 1.6; text-align: center; }
 .chat-message { max-width: min(78%, 430px); align-self: flex-start; }
 .chat-message.mine { align-self: flex-end; text-align: right; }
 .chat-message > small { color: var(--ns-text-829187, #829187); font-size: 9px; }

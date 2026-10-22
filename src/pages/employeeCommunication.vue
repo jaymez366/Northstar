@@ -116,7 +116,7 @@
 
         <div class="audience-list">
           <div v-for="(department, index) in audienceDepartments" :key="department.name">
-            <span class="audience-dot" :class="['lime', 'coral', 'dark'][index]" />
+            <span class="audience-dot blue" :style="{ opacity: 1 - index * 0.16 }" />
             <span>{{ department.name }}</span>
             <strong>{{ department.count }}</strong>
           </div>
@@ -259,12 +259,13 @@
 .composer-panel,
 .insight-panel {
   padding: 32px;
-  border: 1px solid var(--ns-announcement-border, #e5ddd1);
+  border: 1px solid var(--ns-border);
   border-radius: 16px;
-  box-shadow: var(--ns-announcement-shadow, 0 10px 28px rgb(45 39 29 / 7%));
+  box-shadow: var(--ns-announcement-shadow);
 }
 .composer-panel {
-  background: var(--ns-announcement-surface, #fffaf3);
+  background: var(--ns-surface);
+  color: var(--ns-text-primary);
 }
 .panel-heading {
   display: flex;
@@ -279,8 +280,9 @@
 }
 .draft-status {
   padding: 7px 9px;
-  background: var(--ns-bg-eaf0df, #eaf0df);
-  color: var(--ns-text-6d897b, #6d897b);
+  border-radius: 999px;
+  background: var(--ns-blue-soft);
+  color: var(--ns-primary);
   font:
     9px "DM Mono",
     monospace;
@@ -289,7 +291,7 @@
 label {
   display: block;
   margin-bottom: 9px;
-  color: var(--ns-text-6d897b, #6d897b);
+  color: var(--ns-text-secondary);
   font:
     10px "DM Mono",
     monospace;
@@ -298,10 +300,11 @@ label {
 textarea {
   width: 100%;
   resize: vertical;
-  border: 1px solid var(--ns-announcement-border, #e5ddd1);
+  border: 1px solid var(--ns-border);
+  border-radius: 9px;
   padding: 16px;
-  background: var(--ns-announcement-field, #fff);
-  color: var(--ns-text-18352d, #18352d);
+  background: var(--ns-surface-raised);
+  color: var(--ns-text-primary);
   font:
     14px/1.7 "Manrope",
     sans-serif;
@@ -310,16 +313,20 @@ textarea {
 .update-title {
   width: 100%;
   margin-bottom: 12px;
-  border: 1px solid var(--ns-announcement-border, #e5ddd1);
+  border: 1px solid var(--ns-border);
+  border-radius: 9px;
   padding: 13px 15px;
-  background: var(--ns-announcement-field, #fff);
-  color: var(--ns-text-18352d, #18352d);
+  background: var(--ns-surface-raised);
+  color: var(--ns-text-primary);
   font: 600 12px "Manrope", sans-serif;
 }
 .form-error { color: var(--ns-text-b85138, #b85138); font-size: 10px; }
 textarea:focus {
-  border-color: var(--ns-border-e16b4c, #e16b4c);
+  border-color: var(--ns-primary);
+  outline: 2px solid var(--ns-blue-border);
+  outline-offset: 1px;
 }
+.update-title:focus { border-color: var(--ns-primary); outline: 2px solid var(--ns-blue-border); outline-offset: 1px; }
 .composer-footer {
   display: flex;
   align-items: center;
@@ -338,8 +345,9 @@ textarea:focus {
   gap: 12px;
   border: 0;
   padding: 13px 17px;
-  background: var(--ns-bg-18352d, #18352d);
-  color: var(--ns-text-f5f6ee, #f5f6ee);
+  border-radius: 9px;
+  background: var(--ns-primary);
+  color: #fff;
   font:
     700 11px "Manrope",
     sans-serif;
@@ -349,10 +357,10 @@ textarea:focus {
   background: var(--ns-primary-hover);
 }
 .insight-panel {
-  background: var(--ns-announcement-muted, #f1eee8);
+  background: var(--ns-surface);
 }
 .insight-panel > .eyebrow {
-  color: var(--ns-text-61756a, #61756a);
+  color: var(--ns-primary);
 }
 .reach-number {
   margin: 27px 0 18px;
@@ -369,13 +377,16 @@ textarea:focus {
 }
 .reach-bar {
   height: 7px;
-  background: var(--ns-bg-bdcdb9, #bdcdb9);
+  border-radius: 999px;
+  background: var(--ns-blue-soft);
+  overflow: hidden;
 }
 .reach-bar span {
   display: block;
   width: 94%;
   height: 100%;
-  background: var(--ns-bg-e16b4c, #e16b4c);
+  border-radius: inherit;
+  background: var(--ns-primary);
 }
 .reach-meta {
   display: flex;
@@ -394,8 +405,8 @@ textarea:focus {
   align-items: center;
   gap: 9px;
   padding: 14px 0;
-  border-bottom: 1px solid var(--ns-border-c1d0bc, #c1d0bc);
-  color: var(--ns-text-61756a, #61756a);
+  border-bottom: 1px solid var(--ns-border);
+  color: var(--ns-text-secondary);
   font-size: 12px;
 }
 .audience-list strong {
@@ -410,15 +421,7 @@ textarea:focus {
   height: 7px;
   border-radius: 50%;
 }
-.lime {
-  background: var(--ns-bg-a2bf55, #a2bf55);
-}
-.coral {
-  background: var(--ns-bg-e16b4c, #e16b4c);
-}
-.dark {
-  background: var(--ns-bg-18352d, #18352d);
-}
+.audience-dot.blue { background: var(--ns-primary); }
 .recent-section {
   padding: 105px 0 90px;
 }
