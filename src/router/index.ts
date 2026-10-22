@@ -8,6 +8,8 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized, type RouteLocationRaw } from 'vue-router'
 import AdminDashboard from '@/pages/adminDashboard.vue'
 import AdminLogin from '@/pages/adminLogin.vue'
+import AdminEvents from '@/pages/adminEvents.vue'
+import AdminResources from '@/pages/adminResources.vue'
 import Announcements from '@/pages/announcements.vue'
 import Departments from '@/pages/departments.vue'
 import DisasterManagement from '@/pages/disasterManagement.vue'
@@ -91,6 +93,16 @@ const router = createRouter({
     {
       path: '/admin',
       component: AdminDashboard,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/events',
+      component: AdminEvents,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/resources',
+      component: AdminResources,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {

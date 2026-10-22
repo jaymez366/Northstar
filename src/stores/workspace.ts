@@ -66,6 +66,7 @@ export type CompanyEvent = {
   id: string
   title: string
   startsAt: string
+  endsAt: string | null
   location: string
   description: string
   organizer: string
@@ -133,7 +134,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         id: row.id,
         title: row.title,
         description: row.content,
-        author: `${author?.first_name ?? ''} ${author?.last_name ?? ''}`.trim() || 'Northstar',
+        author: `${author?.first_name ?? ''} ${author?.last_name ?? ''}`.trim() || (row.author_id ? 'Name unavailable' : 'Creator not recorded'),
         department: department?.name ?? 'Company',
         createdAt: row.created_at,
         priority: ({ normal: 'Normal', important: 'High', urgent: 'High' } as const)[row.priority as 'normal' | 'important' | 'urgent'] ?? 'Normal',
@@ -239,7 +240,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           id: row.id,
           title: row.title,
           description: row.content,
-          author: `${author?.first_name ?? ''} ${author?.last_name ?? ''}`.trim() || 'Northstar',
+          author: `${author?.first_name ?? ''} ${author?.last_name ?? ''}`.trim() || (row.author_id ? 'Name unavailable' : 'Creator not recorded'),
           department: department?.name ?? 'Company',
           createdAt: row.created_at,
           priority: ({ normal: 'Normal', important: 'High', urgent: 'High' } as const)[row.priority as 'normal' | 'important' | 'urgent'] ?? 'Normal',
@@ -304,9 +305,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           id: row.id,
           title: row.title,
           startsAt: row.start_time,
+          endsAt: row.end_time ?? null,
           location: row.location ?? '',
           description: row.description ?? '',
-          organizer: `${organizer?.first_name ?? ''} ${organizer?.last_name ?? ''}`.trim() || 'Northstar',
+          organizer: `${organizer?.first_name ?? ''} ${organizer?.last_name ?? ''}`.trim() || 'Name unavailable',
           attendees: attendees.filter((attendee: { attendance_status: string }) => attendee.attendance_status === 'going').length,
           attending: ownRsvp?.attendance_status === 'going',
         }
@@ -717,7 +719,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     announcement.pinned = !announcement.pinned
   }
 
-  async function publishAnnouncement (title: string, description: string, author: string) {
+  async function publishAnnouncement (title: string, description: string, _author?: string) {
     const auth = useAuthStore()
     if (!auth.isAuthenticated || auth.isAdmin || auth.profile.role !== 'employee' || !auth.canAccessEmployeeWorkspace || !isUuid(auth.userId)) {
       backendError.value = 'Only active employee accounts can publish announcements.'
@@ -736,7 +738,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       title: trimmedTitle,
       content: trimmedDescription,
       priority: 'normal',
-    }).select('id,title,content,created_at,priority,is_pinned').single()
+      author_id: auth.userId,
+    }).select('id,title,content,author_id,created_at,priority,is_pinned,author:profiles!announcements_author_id_fkey(first_name,last_name)').single()
     if (error) {
       backendError.value = `Could not publish announcement: ${error.message}`
       console.error(backendError.value, error)
@@ -746,7 +749,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       id: data.id,
       title: data.title,
       description: data.content,
-      author,
+      author: (() => {
+        const creator = relationOne(data.author)
+        return `${creator?.first_name ?? ''} ${creator?.last_name ?? ''}`.trim() || (data.author_id ? 'Name unavailable' : 'Creator not recorded')
+      })(),
       department: 'Company',
       createdAt: data.created_at,
       priority: 'Normal',

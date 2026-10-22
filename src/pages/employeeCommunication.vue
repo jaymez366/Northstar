@@ -26,7 +26,7 @@
       error.value = 'Add an announcement title and message before continuing.'
       return
     }
-    const published = await workspace.publishAnnouncement(title.value, message.value, auth.profile.firstName || auth.userFirstName)
+    const published = await workspace.publishAnnouncement(title.value, message.value)
     if (published) {
       router.push('/announcements')
     } else {

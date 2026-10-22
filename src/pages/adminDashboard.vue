@@ -77,7 +77,8 @@ type RejectionHistoryRecord = {
   rejection_reason: string
   correction_fields: string[]
   registration_snapshot_id: string | null
-  rejected_by_email: string
+  status_at_event: string
+  rejected_by_email: string | null
   rejected_at: string
   current_approval_status: string
 }
@@ -535,7 +536,7 @@ onMounted(() => {
             <small class="rejection-reason">Reason: {{ record.rejection_reason }}</small>
             <small>Required corrections: {{ record.correction_fields.map(correctionFieldLabel).join(', ') || 'No fields recorded' }}</small>
           </div>
-          <button class="details-button" type="button" @click="openRejectionHistory(record)">View Details</button>
+          <button class="details-button history-view-details" type="button" @click="openRejectionHistory(record)">View Details</button>
         </article>
         </div>
       </div>
@@ -553,7 +554,7 @@ onMounted(() => {
             <div><dt>Employee</dt><dd>{{ selectedRejectionHistory.employee_name }}</dd></div>
             <div><dt>Employee number</dt><dd>{{ selectedRejectionHistory.employee_number || 'Not recorded' }}</dd></div>
             <div><dt>Email</dt><dd>{{ selectedRejectionHistory.employee_email }}</dd></div>
-            <div><dt>Historical status</dt><dd>Rejected</dd></div>
+            <div><dt>Historical status</dt><dd>{{ selectedRejectionHistory.status_at_event }}</dd></div>
             <div><dt>Current status</dt><dd>{{ selectedRejectionHistory.current_approval_status }}</dd></div>
             <div><dt>Rejected at</dt><dd>{{ formatRecordDate(selectedRejectionHistory.rejected_at) }}</dd></div>
             <div><dt>Administrator</dt><dd>{{ selectedRejectionHistory.rejected_by_email || 'Unavailable in recorded history' }}</dd></div>
@@ -902,9 +903,9 @@ onMounted(() => {
       </div>
     </section>
 
-    <v-dialog max-width="640" :model-value="Boolean(selectedSupportInquiry)"
+    <v-dialog max-width="560" :model-value="Boolean(selectedSupportInquiry)"
       @update:model-value="!$event && (selectedSupportInquiry = null)">
-      <v-card v-if="selectedSupportInquiry" class="employee-detail-dialog">
+      <v-card v-if="selectedSupportInquiry" class="employee-detail-dialog support-inquiry-dialog">
         <v-card-title class="dialog-heading"><span>Support inquiry · {{ selectedSupportInquiry.topic }}</span><v-btn
             aria-label="Close support inquiry" icon="mdi-close" variant="text"
             @click="selectedSupportInquiry = null" /></v-card-title>
@@ -927,6 +928,18 @@ onMounted(() => {
     </v-dialog>
 
     <section class="admin-links">
+      <router-link class="surface-card admin-link-card" to="/admin/events">
+        <span><v-icon icon="mdi-calendar-month-outline" /></span>
+        <strong>Event management</strong>
+        <small>Review scheduled company events</small>
+        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" />
+      </router-link>
+      <router-link class="surface-card admin-link-card" to="/admin/resources">
+        <span><v-icon icon="mdi-folder-outline" /></span>
+        <strong>Resource management</strong>
+        <small>Review resources and access private files</small>
+        <v-icon class="link-arrow" icon="mdi-arrow-top-right" size="18" />
+      </router-link>
       <router-link class="surface-card admin-link-card" to="/disaster-management">
         <span><v-icon icon="mdi-shield-alert-outline" /></span>
         <strong>Disaster management</strong>
@@ -1088,6 +1101,21 @@ onMounted(() => {
   color: var(--ns-text-52645a, #52645a);
 }
 
+.history-view-details {
+  flex: 0 0 auto;
+  border: 1px solid var(--ns-border-dce4d9, #dce4d9);
+  border-radius: 6px;
+  padding: 8px 11px;
+  background: transparent;
+  color: var(--ns-text-52645a, #52645a);
+  cursor: pointer;
+  font: 700 9px "Manrope", sans-serif;
+}
+
+.history-view-details:hover {
+  background: var(--ns-bg-f2f5ed, #f2f5ed);
+}
+
 .approve-button {
   background: var(--ns-bg-18352d, #18352d);
   color: var(--ns-text-f5f6ee, #f5f6ee);
@@ -1109,6 +1137,18 @@ onMounted(() => {
 
 .employee-detail-dialog {
   color: var(--ns-text-18352d, #18352d);
+}
+
+.support-inquiry-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(720px, calc(100dvh - 40px));
+  overflow: hidden;
+}
+
+.support-inquiry-dialog :deep(.v-card-text) {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .dialog-heading {
@@ -1157,9 +1197,7 @@ onMounted(() => {
 
 .support-message-list {
   display: grid;
-  max-height: 360px;
   gap: 10px;
-  overflow-y: auto;
   margin: 14px 0;
 }
 

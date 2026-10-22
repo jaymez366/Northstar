@@ -7,6 +7,7 @@
   const category = ref('All resources')
   const selected = ref<Resource | null>(null)
   const downloadError = ref('')
+  const resourceLoadError = computed(() => workspace.backendError.includes('resources:'))
   const isDialogOpen = computed({
     get: () => selected.value !== null,
     set: (open: boolean) => {
@@ -33,11 +34,13 @@
 
 <template>
   <main>
-    <header class="page-heading"><div><p class="eyebrow">KNOWLEDGE AT YOUR FINGERTIPS</p><h1>Resources</h1><p>Policies, guides, and tools to help you do your best work.</p></div></header>
+    <header class="page-heading"><div><p class="eyebrow">KNOWLEDGE AT YOUR FINGERTIPS</p><h1>Resources</h1><p>Policies, guides, and tools to help you do your best work.</p></div><button class="secondary-action" :disabled="workspace.loading" type="button" @click="workspace.load()">{{ workspace.loading ? 'Refreshing…' : 'Refresh' }}</button></header>
     <p v-if="downloadError" class="download-error" role="alert">{{ downloadError }}</p>
     <div class="toolbar"><input v-model="search" aria-label="Search resources" class="field-control" placeholder="Search resources"><select v-model="category" aria-label="Filter resource category" class="field-control"><option v-for="item in categories" :key="item">{{ item }}</option></select><span class="resource-count">{{ filteredResources.length }} resources</span></div>
 
-    <section v-if="filteredResources.length > 0" class="resource-grid">
+    <p v-if="resourceLoadError" class="download-error" role="alert">Resources could not be loaded. Check the Northstar data alert above for details, then refresh.</p>
+    <p v-else-if="workspace.loading && workspace.resources.length === 0" class="resource-loading" role="status">Loading resources…</p>
+    <section v-else-if="filteredResources.length > 0" class="resource-grid">
       <article v-for="resource in filteredResources" :key="resource.id" class="resource-card surface-card">
         <div class="resource-top"><span class="resource-icon"><v-icon :icon="resource.format.startsWith('Course') ? 'mdi-school-outline' : 'mdi-file-document-outline'" size="21" /></span><span class="format-label">{{ resource.format.split(' · ')[0] }}</span></div>
         <span class="category-label">{{ resource.category }}</span><h2>{{ resource.title }}</h2><p>{{ resource.description }}</p><small class="updated-label">{{ resource.updatedAt }}</small>
@@ -45,7 +48,7 @@
       </article>
     </section>
 
-    <div v-else class="empty-state surface-card"><v-icon icon="mdi-folder-search-outline" size="32" /><h2>No resources found</h2><p>Try a different search or category.</p></div>
+    <div v-else class="empty-state surface-card"><v-icon icon="mdi-folder-search-outline" size="32" /><h2>{{ search || category !== 'All resources' ? 'No matching resources' : 'No resources available' }}</h2><p>{{ search || category !== 'All resources' ? 'Try a different search or category.' : 'Published company resources will appear here when available.' }}</p></div>
     <v-dialog v-model="isDialogOpen" max-width="560"><v-card v-if="selected" class="detail-dialog"><v-card-title>{{ selected.title }}</v-card-title><v-card-subtitle>{{ selected.category }} · {{ selected.format }}</v-card-subtitle><v-card-text>{{ selected.description }}<p>{{ selected.updatedAt }}</p></v-card-text><v-card-actions><v-spacer /><v-btn variant="text" @click="selected = null">Close</v-btn><v-btn color="primary" @click="downloadResource(selected)">Download</v-btn></v-card-actions></v-card></v-dialog>
   </main>
 </template>
@@ -53,6 +56,7 @@
 <style scoped>
 .resource-count { margin-left: auto; color: var(--ns-text-829187, #829187); font-size: 10px; }
 .download-error { color: var(--ns-text-a34c39, #a34c39); font-size: 10px; }
+.resource-loading { padding: 14px; color: var(--ns-text-718178, #718178); }
 .resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
 .resource-card { display: flex; min-height: 255px; flex-direction: column; padding: 17px; }
 .resource-top { display: flex; align-items: center; justify-content: space-between; }
