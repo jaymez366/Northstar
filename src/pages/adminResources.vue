@@ -17,6 +17,7 @@ type ResourceRecord = {
 
 const auth = useAuthStore()
 const rows = ref<ResourceRecord[]>([])
+const uploaderNames = ref<Record<string, string>>({})
 const loading = ref(false)
 const downloadingId = ref('')
 const error = ref('')
@@ -41,6 +42,15 @@ async function loadResources () {
     return
   }
   rows.value = data ?? []
+  const uploaderIds = [...new Set(rows.value.map(resource => resource.uploaded_by).filter(Boolean))]
+  uploaderNames.value = {}
+  if (uploaderIds.length) {
+    const { data: profiles } = await supabase.from('profiles').select('id,first_name,last_name').in('id', uploaderIds)
+    uploaderNames.value = Object.fromEntries((profiles ?? []).map(profile => [
+      profile.id,
+      `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim(),
+    ]))
+  }
 }
 
 async function download (resource: ResourceRecord) {
@@ -70,7 +80,7 @@ onMounted(() => { void loadResources() })
       <div v-else-if="resources.length" class="record-list">
         <article v-for="resource in resources" :key="resource.id" class="record">
           <div><span class="category">{{ resource.category }}</span><h2>{{ resource.title }}</h2><p>{{ resource.description || 'No description provided.' }}</p><small>Updated {{ formatDate(resource.updated_at || resource.created_at) }}</small></div>
-          <div class="resource-actions"><span>Uploaded by {{ resource.uploaded_by }}</span><button class="secondary-action" type="button" :disabled="downloadingId === resource.id" @click="download(resource)">{{ downloadingId === resource.id ? 'Preparing…' : 'Download' }}</button></div>
+          <div class="resource-actions"><span>Uploaded by {{ uploaderNames[resource.uploaded_by] || 'Name unavailable' }}</span><button class="secondary-action" type="button" :disabled="downloadingId === resource.id" @click="download(resource)">{{ downloadingId === resource.id ? 'Preparing…' : 'Download' }}</button></div>
         </article>
       </div>
       <p v-else>No resources are currently available.</p>

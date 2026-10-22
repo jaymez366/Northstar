@@ -664,7 +664,12 @@ html[data-northstar-theme='dark'] {
   --ns-bg-f8f9f6: var(--ns-surface-raised);
   --ns-bg-f9faf6ed: color-mix(in srgb, var(--ns-surface) 94%, transparent);
   --ns-bg-18352d: var(--ns-primary);
+  --ns-bg-1d4035: var(--ns-primary);
+  --ns-bg-285346: var(--ns-primary-hover);
   --ns-bg-2563eb: var(--ns-primary);
+  --ns-bg-f1f4eb: var(--ns-blue-soft);
+  --ns-bg-f2f5ed: var(--ns-blue-soft);
+  --ns-bg-f5f7f1: var(--ns-blue-soft);
   --ns-text-10231d: var(--ns-text-primary);
   --ns-text-18352d: var(--ns-text-primary);
   --ns-text-52645a: var(--ns-text-secondary);
@@ -672,9 +677,12 @@ html[data-northstar-theme='dark'] {
   --ns-text-60766a: var(--ns-text-secondary);
   --ns-text-718178: var(--ns-text-secondary);
   --ns-text-71897b: var(--ns-text-secondary);
+  --ns-text-bf593d: var(--ns-primary);
   --ns-text-829187: var(--ns-text-secondary);
   --ns-border-18352d: var(--ns-primary);
   --ns-border-2563eb: var(--ns-primary);
+  --ns-border-93a98e: var(--ns-blue-border);
+  --ns-border-9caf91: var(--ns-blue-border);
   --ns-border-dce4d8: var(--ns-border);
 }
 
@@ -687,7 +695,8 @@ html[data-northstar-theme='dark'] {
   .approval-page,
   .admin-login-page,
   .overview-page,
-  .admin-shell
+  .admin-shell,
+  .workspace-shell
 ) {
   --ns-bg-102d26: var(--ns-surface);
   --ns-bg-526c5c: var(--ns-primary);
@@ -716,6 +725,7 @@ html[data-northstar-theme='dark'] {
   --ns-text-89968d: var(--ns-text-secondary);
   --ns-border-e16b4c: var(--ns-primary);
   --ns-border-9caf91: var(--ns-blue-border);
+  --ns-shadow-d4ec66: var(--ns-blue-border);
 }
 
 .overview-page {

@@ -247,7 +247,7 @@ async function loadRejectionHistory() {
   rejectionHistoryLoading.value = true
   rejectionHistoryError.value = ''
   try {
-    const { data, error } = await supabase.rpc('northstar_admin_list_employee_rejection_history_with_corrections')
+    const { data, error } = await supabase.rpc('northstar_admin_list_rejection_history')
     if (error) {
       rejectionHistoryError.value = `Could not load rejection history: ${error.message}`
       console.error(rejectionHistoryError.value, error)
@@ -542,9 +542,9 @@ onMounted(() => {
       </div>
     </section>
 
-    <v-dialog max-width="640" :model-value="Boolean(selectedRejectionHistory)"
+    <v-dialog max-width="600" :model-value="Boolean(selectedRejectionHistory)"
       @update:model-value="!$event && (selectedRejectionHistory = null)">
-      <v-card v-if="selectedRejectionHistory" class="employee-detail-dialog">
+      <v-card v-if="selectedRejectionHistory" class="employee-detail-dialog rejection-history-dialog">
         <v-card-title class="dialog-heading">
           <span>Historical rejection details</span>
           <v-btn aria-label="Close rejection details" icon="mdi-close" variant="text" @click="selectedRejectionHistory = null" />
@@ -577,9 +577,9 @@ onMounted(() => {
       </v-card>
     </v-dialog>
 
-    <v-dialog max-width="760" :model-value="Boolean(selectedEmployee)"
+    <v-dialog max-width="700" :model-value="Boolean(selectedEmployee)"
       @update:model-value="!$event && (selectedEmployee = null)">
-      <v-card v-if="selectedEmployee" class="employee-detail-dialog">
+      <v-card v-if="selectedEmployee" class="employee-detail-dialog employee-registration-dialog">
         <v-card-title class="dialog-heading">
           <span>Employee registration details</span>
           <v-btn aria-label="Close employee details" icon="mdi-close" variant="text" @click="selectedEmployee = null" />
@@ -903,7 +903,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <v-dialog max-width="560" :model-value="Boolean(selectedSupportInquiry)"
+    <v-dialog max-width="520" :model-value="Boolean(selectedSupportInquiry)"
       @update:model-value="!$event && (selectedSupportInquiry = null)">
       <v-card v-if="selectedSupportInquiry" class="employee-detail-dialog support-inquiry-dialog">
         <v-card-title class="dialog-heading"><span>Support inquiry · {{ selectedSupportInquiry.topic }}</span><v-btn
@@ -1139,17 +1139,35 @@ onMounted(() => {
   color: var(--ns-text-18352d, #18352d);
 }
 
+.rejection-history-dialog,
+.employee-registration-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(640px, calc(100dvh - 32px));
+  overflow: hidden;
+}
+
+.rejection-history-dialog :deep(.v-card-text),
+.employee-registration-dialog :deep(.v-card-text) {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .support-inquiry-dialog {
   display: flex;
   flex-direction: column;
-  max-height: min(720px, calc(100dvh - 40px));
+  max-height: min(620px, calc(100dvh - 32px));
   overflow: hidden;
 }
 
 .support-inquiry-dialog :deep(.v-card-text) {
   min-height: 0;
   overflow-y: auto;
+  padding: 12px 18px;
 }
+
+.support-inquiry-dialog :deep(.v-card-actions) { min-height: 48px; padding: 6px 16px 12px; }
+.support-message-list { gap: 8px; margin: 10px 0; }
 
 .dialog-heading {
   display: flex;

@@ -441,7 +441,8 @@ body { min-width: 320px; margin: 0; background: var(--ns-bg-f3f5ef, #f3f5ef); }
   font: 700 11px "Manrope", sans-serif;
 }
 .secondary-action { border-color: var(--ns-border-d1dbcd, #d1dbcd); background: var(--ns-bg-fff, #fff); color: var(--ns-text-18352d, #18352d); }
-.primary-action:hover { background: var(--ns-bg-285346, #285346); }
+.primary-action:hover { background: var(--ns-primary-hover); border-color: var(--ns-primary-hover); }
+.primary-action:focus-visible, .secondary-action:focus-visible { outline: 3px solid var(--ns-blue-border); outline-offset: 2px; }
 .secondary-action:hover { border-color: var(--ns-border-93a98e, #93a98e); }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 18px; }
 .field-control {

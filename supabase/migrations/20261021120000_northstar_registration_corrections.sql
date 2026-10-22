@@ -484,7 +484,7 @@ ALTER FUNCTION public.northstar_list_my_employee_rejection_history_with_correcti
 REVOKE ALL ON FUNCTION public.northstar_list_my_employee_rejection_history_with_corrections() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.northstar_list_my_employee_rejection_history_with_corrections() TO authenticated;
 
-CREATE FUNCTION public.northstar_admin_list_employee_rejection_history_with_corrections()
+CREATE FUNCTION public.northstar_admin_list_rejection_history()
 RETURNS TABLE (
   id uuid, employee_id uuid, employee_number text, employee_name text,
   employee_email text, rejection_reason text, rejected_by_email text,
@@ -512,6 +512,6 @@ BEGIN
 END
 $function$;
 
-ALTER FUNCTION public.northstar_admin_list_employee_rejection_history_with_corrections() OWNER TO postgres;
-REVOKE ALL ON FUNCTION public.northstar_admin_list_employee_rejection_history_with_corrections() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.northstar_admin_list_employee_rejection_history_with_corrections() TO authenticated;
+ALTER FUNCTION public.northstar_admin_list_rejection_history() OWNER TO postgres;
+REVOKE ALL ON FUNCTION public.northstar_admin_list_rejection_history() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.northstar_admin_list_rejection_history() TO authenticated;

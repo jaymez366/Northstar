@@ -327,7 +327,7 @@ textarea:focus {
   cursor: pointer;
 }
 .send-button:hover {
-  background: var(--ns-bg-e16b4c, #e16b4c);
+  background: var(--ns-primary-hover);
 }
 .insight-panel {
   background: var(--ns-bg-dce7d5, #dce7d5);

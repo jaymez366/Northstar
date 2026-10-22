@@ -11,6 +11,7 @@ type EventRecord = {
   start_time: string
   end_time: string | null
   organizer_id: string
+  organizer: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null
   department_id: string | null
   created_at: string
   updated_at: string
@@ -33,7 +34,7 @@ async function loadEvents () {
   loading.value = true
   error.value = ''
   const { data, error: queryError } = await supabase.from('events')
-    .select('id,title,description,location,start_time,end_time,organizer_id,department_id,created_at,updated_at')
+    .select('id,title,description,location,start_time,end_time,organizer_id,department_id,created_at,updated_at,organizer:profiles!events_organizer_id_fkey(first_name,last_name)')
     .order('start_time', { ascending: true })
   loading.value = false
   if (queryError) {
@@ -44,6 +45,10 @@ async function loadEvents () {
 }
 
 const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+const organizerName = (event: EventRecord) => {
+  const organizer = Array.isArray(event.organizer) ? event.organizer[0] : event.organizer
+  return `${organizer?.first_name ?? ''} ${organizer?.last_name ?? ''}`.trim() || 'Name unavailable'
+}
 onMounted(() => { void loadEvents() })
 </script>
 
@@ -57,7 +62,7 @@ onMounted(() => { void loadEvents() })
       <div v-else-if="events.length" class="record-list">
         <article v-for="event in events" :key="event.id" class="record">
           <div><h2>{{ event.title }}</h2><p>{{ event.description || 'No description provided.' }}</p><small>{{ event.location || 'Location to be announced' }}</small></div>
-          <dl><div><dt>Starts</dt><dd>{{ formatDate(event.start_time) }}</dd></div><div><dt>Ends</dt><dd>{{ event.end_time ? formatDate(event.end_time) : 'Not specified' }}</dd></div><div><dt>Organizer ID</dt><dd>{{ event.organizer_id }}</dd></div></dl>
+          <dl><div><dt>Starts</dt><dd>{{ formatDate(event.start_time) }}</dd></div><div><dt>Ends</dt><dd>{{ event.end_time ? formatDate(event.end_time) : 'Not specified' }}</dd></div><div><dt>Organizer</dt><dd>{{ organizerName(event) }}</dd></div></dl>
         </article>
       </div>
       <p v-else>No events are currently available.</p>
