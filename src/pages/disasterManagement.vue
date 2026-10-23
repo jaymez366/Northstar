@@ -15,13 +15,16 @@ type Incident = {
   category: string
   severity: IncidentSeverity
   location: string
-  reported_by: string
+  reported_by?: string | null
+  reporter_name?: string | null
+  assigned_responder_name?: string | null
+  is_reporter?: boolean
   reported_at: string
   status: IncidentStatus
-  assigned_responder: string | null
+  assigned_responder?: string | null
   resolution_details: string | null
-  created_at: string
-  updated_at: string
+  created_at?: string
+  updated_at?: string
 }
 type IncidentUpdate = {
   id: string
@@ -56,6 +59,10 @@ const loadError = ref('')
 const formError = ref('')
 const actionError = ref('')
 const successMessage = ref('')
+const reporterStatusDrafts = ref<Record<string, IncidentStatus>>({})
+const reporterStatusErrors = ref<Record<string, string>>({})
+const reporterStatusMessages = ref<Record<string, string>>({})
+const savingReporterStatusId = ref('')
 const search = ref('')
 const expandedIncidentId = ref('')
 const reportForm = ref({ title: '', description: '', category: '', severity: '', location: '' })
@@ -97,17 +104,17 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-function employeeLabel(id: string | null) {
-  if (!id) return 'Unassigned'
+function employeeLabel(id: string | null, displayName?: string | null) {
+  if (!id) return displayName?.trim() || 'Unassigned'
   if (id === auth.userId) return 'You'
   const responder = responders.value.find(item => item.user_id === id)
-  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : 'Assigned employee'
+  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : displayName?.trim() || 'Assigned employee'
 }
 
-function reporterLabel(id: string) {
-  if (id === auth.userId) return 'You'
+function reporterLabel(id?: string | null, displayName?: string | null) {
+  if (id && id === auth.userId) return 'You'
   const responder = responders.value.find(item => item.user_id === id)
-  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : 'Employee'
+  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : displayName?.trim() || (id ? 'Employee' : 'Reporter information restricted')
 }
 
 function historyFor(incidentId: string) {
@@ -122,31 +129,44 @@ async function loadIncidents() {
   loading.value = true
   loadError.value = ''
   try {
-    const [incidentResult, updateResult] = await Promise.all([
-      supabase.from('northstar_incidents')
+    const incidentQuery = isDesignatedAdmin.value
+      ? supabase.from('northstar_incidents')
         .select('id,title,description,category,severity,location,reported_by,reported_at,status,assigned_responder,resolution_details,created_at,updated_at')
-        .order('reported_at', { ascending: false }),
+        .order('reported_at', { ascending: false })
+      : supabase.rpc('northstar_list_company_incidents')
+        .order('reported_at', { ascending: false })
+    const [incidentResult, updateResult] = await Promise.all([
+      incidentQuery,
       supabase.from('northstar_incident_updates')
         .select('id,incident_id,actor_id,event_type,visibility,old_status,new_status,old_severity,new_severity,old_assigned_responder,new_assigned_responder,old_resolution_details,new_resolution_details,details,created_at')
         .order('created_at', { ascending: false }),
     ])
     if (incidentResult.error) throw new Error(`Could not load incident reports: ${incidentResult.error.message}`)
     if (updateResult.error) throw new Error(`Could not load incident history: ${updateResult.error.message}`)
-    const [totalResult, activeResult, resolvedResult, criticalResult] = await Promise.all([
-      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }),
-      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'investigating']),
-      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
-      supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('severity', 'critical').in('status', ['open', 'investigating']),
-    ])
-    const countError = [totalResult, activeResult, resolvedResult, criticalResult].find(result => result.error)?.error
-    if (countError) throw new Error(`Could not load incident counts: ${countError.message}`)
     incidents.value = (incidentResult.data ?? []) as Incident[]
     updates.value = (updateResult.data ?? []) as IncidentUpdate[]
-    incidentCounts.value = {
-      total: totalResult.count ?? 0,
-      active: activeResult.count ?? 0,
-      resolved: resolvedResult.count ?? 0,
-      critical: criticalResult.count ?? 0,
+    if (isDesignatedAdmin.value) {
+      const [totalResult, activeResult, resolvedResult, criticalResult] = await Promise.all([
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }),
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'investigating']),
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('severity', 'critical').in('status', ['open', 'investigating']),
+      ])
+      const countError = [totalResult, activeResult, resolvedResult, criticalResult].find(result => result.error)?.error
+      if (countError) throw new Error(`Could not load incident counts: ${countError.message}`)
+      incidentCounts.value = {
+        total: totalResult.count ?? 0,
+        active: activeResult.count ?? 0,
+        resolved: resolvedResult.count ?? 0,
+        critical: criticalResult.count ?? 0,
+      }
+    } else {
+      incidentCounts.value = {
+        total: incidents.value.length,
+        active: incidents.value.filter(incident => ['open', 'investigating'].includes(incident.status)).length,
+        resolved: incidents.value.filter(incident => incident.status === 'resolved').length,
+        critical: incidents.value.filter(incident => incident.severity === 'critical' && ['open', 'investigating'].includes(incident.status)).length,
+      }
     }
     const linkedIncidentId = typeof route.query.incident === 'string' ? route.query.incident : ''
     if (incidents.value.some(incident => incident.id === linkedIncidentId)) {
@@ -234,6 +254,45 @@ const adminDrafts = ref<Record<string, ReturnType<typeof newAdminDraft>>>({})
 
 function draftFor(incident: Incident) {
   return adminDrafts.value[incident.id] ?? (adminDrafts.value[incident.id] = newAdminDraft(incident))
+}
+
+function reporterStatusFor(incident: Incident) {
+  return reporterStatusDrafts.value[incident.id] ?? (reporterStatusDrafts.value[incident.id] = incident.status)
+}
+
+function setReporterStatus(incidentId: string, event: Event) {
+  if (event.target instanceof HTMLSelectElement) {
+    reporterStatusDrafts.value[incidentId] = event.target.value as IncidentStatus
+  }
+}
+
+async function saveReporterStatus(incident: Incident) {
+  if (!canReportIncident.value || incident.is_reporter !== true || !supabase || savingReporterStatusId.value) return
+  const status = reporterStatusFor(incident)
+  reporterStatusErrors.value[incident.id] = ''
+  reporterStatusMessages.value[incident.id] = ''
+  if (status === incident.status) return
+  if (['resolved', 'closed'].includes(status) && !incident.resolution_details?.trim()) {
+    reporterStatusErrors.value[incident.id] = 'An administrator must add resolution details before this incident can be resolved or closed.'
+    return
+  }
+
+  savingReporterStatusId.value = incident.id
+  try {
+    const { error } = await supabase.rpc('northstar_reporter_update_incident_status', {
+      p_incident_id: incident.id,
+      p_status: status,
+    })
+    if (error) throw error
+    delete reporterStatusDrafts.value[incident.id]
+    reporterStatusMessages.value[incident.id] = 'Your incident status was updated.'
+    await loadIncidents()
+  } catch (error) {
+    reporterStatusErrors.value[incident.id] = error instanceof Error ? error.message : 'Could not update the incident status. Please try again.'
+    console.error('Northstar reporter incident status update failed', error)
+  } finally {
+    savingReporterStatusId.value = ''
+  }
 }
 
 async function saveIncidentUpdate(incident: Incident) {
@@ -410,7 +469,7 @@ onUnmounted(() => {
               <td>{{ incident.category.replaceAll('_', ' ') }}</td>
               <td>{{ incident.location }}</td>
               <td><span class="severity-pill" :class="incident.severity">{{ incident.severity }}</span></td>
-              <td>{{ reporterLabel(incident.reported_by) }}</td>
+              <td>{{ reporterLabel(incident.reported_by, incident.reporter_name) }}</td>
               <td>{{ formatDate(incident.reported_at) }}</td>
               <td><span class="status-pill" :class="incident.status">{{ incident.status }}</span></td>
               <td><button class="details-button" type="button" @click="expandedIncidentId = expandedIncidentId === incident.id ? '' : incident.id">{{ expandedIncidentId === incident.id ? 'Hide details' : 'Details' }}</button></td>
@@ -418,8 +477,31 @@ onUnmounted(() => {
             <tr v-if="expandedIncidentId === incident.id" class="detail-row">
               <td colspan="8">
                 <div class="incident-detail">
-                  <div class="incident-description"><p class="eyebrow">INCIDENT DESCRIPTION</p><p>{{ incident.description }}</p><p><strong>Reported by:</strong> {{ reporterLabel(incident.reported_by) }} · <strong>Reported:</strong> {{ formatDate(incident.reported_at) }} <span v-if="incident.assigned_responder"> · <strong>Responder:</strong> {{ employeeLabel(incident.assigned_responder) }}</span></p><p v-if="incident.resolution_details"><strong>Resolution:</strong> {{ incident.resolution_details }}</p></div>
+                  <div class="incident-description"><p class="eyebrow">INCIDENT DESCRIPTION</p><p>{{ incident.description }}</p><p><strong>Reported by:</strong> {{ reporterLabel(incident.reported_by, incident.reporter_name) }} · <strong>Reported:</strong> {{ formatDate(incident.reported_at) }} <span v-if="incident.assigned_responder || incident.assigned_responder_name"> · <strong>Responder:</strong> {{ employeeLabel(incident.assigned_responder ?? '', incident.assigned_responder_name) }}</span></p><p v-if="incident.resolution_details"><strong>Resolution:</strong> {{ incident.resolution_details }}</p></div>
                   <section class="history-section"><h3>Incident history</h3><p v-if="historyFor(incident.id).length === 0" class="history-empty">No updates are visible for this incident.</p><ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ update.event_type.replaceAll('_', ' ') }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${update.old_status} → ` : '' }}{{ update.new_status }}</small><small v-if="update.new_severity">Severity: {{ update.old_severity ? `${update.old_severity} → ` : '' }}{{ update.new_severity }}</small><small v-if="update.event_type === 'responder_changed' || update.new_assigned_responder">Responder: {{ employeeLabel(update.new_assigned_responder) }}</small><small v-if="update.new_resolution_details">Resolution: {{ update.new_resolution_details }}</small></div></li></ol></section>
+                  <section v-if="canReportIncident && incident.is_reporter" class="admin-update-panel reporter-status-panel">
+                    <h3>Your incident status</h3>
+                    <label class="form-field">
+                      <span>Status</span>
+                      <select :value="reporterStatusFor(incident)" @change="setReporterStatus(incident.id, $event)">
+                        <option
+                          v-for="status in statusOptions"
+                          :key="status"
+                          :disabled="['resolved', 'closed'].includes(status) && !incident.resolution_details?.trim()"
+                          :value="status"
+                        >{{ status }}</option>
+                      </select>
+                    </label>
+                    <p class="status-update-hint">You can update the status of an incident you reported. Severity and other protected details remain unchanged.</p>
+                    <p v-if="reporterStatusErrors[incident.id]" class="form-message error-message" role="alert">{{ reporterStatusErrors[incident.id] }}</p>
+                    <p v-if="reporterStatusMessages[incident.id]" class="form-message success-message" role="status">{{ reporterStatusMessages[incident.id] }}</p>
+                    <button
+                      class="submit-button"
+                      :disabled="savingReporterStatusId === incident.id || reporterStatusFor(incident) === incident.status"
+                      type="button"
+                      @click="saveReporterStatus(incident)"
+                    >{{ savingReporterStatusId === incident.id ? 'Saving…' : 'Update my incident status' }}</button>
+                  </section>
                   <section v-if="isDesignatedAdmin" class="admin-update-panel"><h3>Administrator incident controls</h3><label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option value="admin">Private admin note</option></select></label><p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p><div class="admin-fields"><label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ status }}</option></select></label><label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severity }}</option></select></label><label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ `${responder.first_name} ${responder.last_name}`.trim() }}</option></select></label></div><label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label><label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note' : 'Update for the selected audience' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Add useful response details"></textarea></label><p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p><button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button></section>
                 </div>
               </td>

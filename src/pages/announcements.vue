@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue'
+  import NorthstarBackButton from '@/components/NorthstarBackButton.vue'
   import { useAuthStore } from '@/stores/auth'
   import { type Announcement, useWorkspaceStore } from '@/stores/workspace'
 
@@ -47,6 +48,7 @@
 <template>
   <main>
     <header class="page-heading">
+      <NorthstarBackButton />
       <div><p class="eyebrow">COMPANY-WIDE UPDATES</p><h1>Announcements</h1><p>Company news and important updates, all in one place.</p></div>
       <router-link v-if="canCreateAnnouncements" class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
     </header>

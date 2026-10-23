@@ -8,6 +8,8 @@
   const router = useRouter()
   const password = ref('')
   const confirmPassword = ref('')
+  const passwordVisible = ref(false)
+  const confirmPasswordVisible = ref(false)
   const resetEmail = ref(typeof route.query.email === 'string' ? route.query.email : '')
   const errorMessage = ref('')
   const noticeMessage = ref('')
@@ -91,24 +93,47 @@
       <form v-else-if="recoveryReady" @submit.prevent="updatePassword">
         <label for="new-password">New password</label>
 
-        <input
-          id="new-password"
-          v-model="password"
-          autocomplete="new-password"
-          minlength="8"
-          required
-          type="password"
-        >
+        <div class="password-field">
+          <input
+            id="new-password"
+            v-model="password"
+            autocomplete="new-password"
+            minlength="8"
+            required
+            :type="passwordVisible ? 'text' : 'password'"
+          >
+          <button
+            :aria-label="passwordVisible ? 'Hide new password' : 'Show new password'"
+            :aria-pressed="passwordVisible"
+            class="password-visibility-toggle"
+            type="button"
+            @click="passwordVisible = !passwordVisible"
+          >
+            <v-icon :icon="passwordVisible ? 'mdi-eye-off' : 'mdi-eye'" size="20" />
+          </button>
+        </div>
 
         <label for="confirm-password">Confirm new password</label>
 
-        <input
-          id="confirm-password"
-          v-model="confirmPassword"
-          autocomplete="new-password"
-          required
-          type="password"
-        >
+        <div class="password-field">
+          <input
+            id="confirm-password"
+            v-model="confirmPassword"
+            autocomplete="new-password"
+            minlength="8"
+            required
+            :type="confirmPasswordVisible ? 'text' : 'password'"
+          >
+          <button
+            :aria-label="confirmPasswordVisible ? 'Hide confirmation password' : 'Show confirmation password'"
+            :aria-pressed="confirmPasswordVisible"
+            class="password-visibility-toggle"
+            type="button"
+            @click="confirmPasswordVisible = !confirmPasswordVisible"
+          >
+            <v-icon :icon="confirmPasswordVisible ? 'mdi-eye-off' : 'mdi-eye'" size="20" />
+          </button>
+        </div>
 
         <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
 
@@ -173,6 +198,10 @@
 .reset-card form { display: grid; gap: 10px; }
 label { margin-top: 8px; color: var(--ns-text-bdcbbf, #bdcbbf); font-size: 10px; font-weight: 700; }
 input { width: 100%; border: 1px solid var(--ns-border-557064, #557064); padding: 13px; background: var(--ns-bg-24473d, #24473d); color: var(--ns-text-f3f5ef, #f3f5ef); font: 12px "Manrope", sans-serif; }
+.password-field { position: relative; width: 100%; }
+.password-field input { padding-right: 48px; }
+.password-visibility-toggle { position: absolute; top: 0; right: 0; display: grid; width: 44px; height: 100%; place-items: center; border: 0; background: transparent; color: var(--ns-text-secondary); cursor: pointer; }
+.password-visibility-toggle:focus-visible { outline: 2px solid var(--ns-primary); outline-offset: -3px; }
 input:focus { outline: 2px solid var(--ns-border-d4ec66, #d4ec66); outline-offset: 2px; }
 .error-message { color: var(--ns-text-ffab91, #ffab91); font-size: 10px; }
 .submit-button { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; border: 0; padding: 14px 16px; background: var(--ns-bg-d4ec66, #d4ec66); color: var(--ns-text-18352d, #18352d); cursor: pointer; font: 700 11px "Manrope", sans-serif; }
