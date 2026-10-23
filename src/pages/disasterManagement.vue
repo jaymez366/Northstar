@@ -111,10 +111,30 @@ function employeeLabel(id: string | null, displayName?: string | null) {
   return responder ? `${responder.first_name} ${responder.last_name}`.trim() : displayName?.trim() || 'Assigned employee'
 }
 
-function reporterLabel(id?: string | null, displayName?: string | null) {
-  if (id && id === auth.userId) return 'You'
+function reporterLabel(id?: string | null, displayName?: string | null, isReporter = false) {
+  if (isReporter || (id && id === auth.userId)) return 'You'
   const responder = responders.value.find(item => item.user_id === id)
-  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : displayName?.trim() || (id ? 'Employee' : 'Reporter information restricted')
+  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : displayName?.trim() || (id ? 'Employee' : 'Reporter details unavailable')
+}
+
+function mapCompanyIncidentRows(value: unknown): Incident[] {
+  if (!Array.isArray(value)) throw new Error('Supabase returned an unexpected incident list.')
+  return value.map((row: unknown) => {
+    if (typeof row !== 'object' || row === null) throw new Error('Supabase returned an invalid incident record.')
+    const record = row as Record<string, unknown>
+    return {
+      ...record,
+      is_reporter: typeof record.is_reporter === 'boolean' ? record.is_reporter : undefined,
+    } as Incident
+  })
+}
+
+function statusLabel(status: IncidentStatus) {
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function categoryLabel(category: string) {
+  return category.replaceAll('_', ' ').replace(/\b\w/g, character => character.toUpperCase())
 }
 
 function historyFor(incidentId: string) {
@@ -143,7 +163,9 @@ async function loadIncidents() {
     ])
     if (incidentResult.error) throw new Error(`Could not load incident reports: ${incidentResult.error.message}`)
     if (updateResult.error) throw new Error(`Could not load incident history: ${updateResult.error.message}`)
-    incidents.value = (incidentResult.data ?? []) as Incident[]
+    incidents.value = isDesignatedAdmin.value
+      ? (incidentResult.data ?? []) as Incident[]
+      : mapCompanyIncidentRows(incidentResult.data ?? [])
     updates.value = (updateResult.data ?? []) as IncidentUpdate[]
     if (isDesignatedAdmin.value) {
       const [totalResult, activeResult, resolvedResult, criticalResult] = await Promise.all([
@@ -440,7 +462,59 @@ onUnmounted(() => {
       </div>
       <p v-if="loadError" class="table-message error-message" role="alert">{{ loadError }}</p>
       <div v-else-if="loading" class="table-message" aria-live="polite"><v-progress-circular indeterminate size="20" width="2" /> Loading incidents…</div>
-      <div class="table-scroll">
+      <div v-else-if="!isDesignatedAdmin" class="employee-incident-list">
+        <div v-if="filteredIncidents.length === 0" class="table-empty employee-empty">
+          <v-icon :icon="search ? 'mdi-magnify' : 'mdi-file-search-outline'" size="25" />
+          <strong>{{ search ? 'No matching incidents' : 'No incident records available' }}</strong>
+          <span>{{ search ? 'Try a different search term.' : 'No incidents are currently visible to your account.' }}</span>
+        </div>
+        <article v-for="incident in filteredIncidents" :key="incident.id" class="employee-incident-card surface-card">
+          <header class="employee-incident-header">
+            <div class="employee-incident-title">
+              <p class="eyebrow">{{ categoryLabel(incident.category) }}</p>
+              <h3>{{ incident.title }}</h3>
+            </div>
+            <div class="incident-badges" aria-label="Incident status and severity">
+              <span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span>
+              <span class="severity-pill" :class="incident.severity">{{ categoryLabel(incident.severity) }}</span>
+            </div>
+          </header>
+          <p class="employee-incident-description">{{ incident.description }}</p>
+          <dl class="incident-metadata">
+            <div><dt>Category</dt><dd>{{ categoryLabel(incident.category) }}</dd></div>
+            <div><dt>Location</dt><dd>{{ incident.location }}</dd></div>
+            <div><dt>Reported</dt><dd>{{ formatDate(incident.reported_at) }}</dd></div>
+            <div><dt>Reported by</dt><dd>{{ reporterLabel(incident.reported_by, incident.reporter_name, incident.is_reporter === true) }}</dd></div>
+            <div v-if="incident.assigned_responder || incident.assigned_responder_name"><dt>Assigned responder</dt><dd>{{ employeeLabel(incident.assigned_responder ?? '', incident.assigned_responder_name) }}</dd></div>
+            <div v-if="incident.resolution_details"><dt>Resolution details</dt><dd>{{ incident.resolution_details }}</dd></div>
+          </dl>
+          <section v-if="canReportIncident && incident.is_reporter === true" class="reporter-status-panel" aria-label="Update your incident status">
+            <div class="reporter-status-heading">
+              <div><h4>Update Status</h4><p>Current status: <strong>{{ statusLabel(incident.status) }}</strong></p></div>
+              <span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span>
+            </div>
+            <label class="form-field reporter-status-field">
+              <span>New status</span>
+              <select :value="reporterStatusFor(incident)" :disabled="savingReporterStatusId === incident.id" @change="setReporterStatus(incident.id, $event)">
+                <option v-for="status in statusOptions" :key="status" :disabled="['resolved', 'closed'].includes(status) && !incident.resolution_details?.trim()" :value="status">{{ statusLabel(status) }}</option>
+              </select>
+            </label>
+            <p v-if="!incident.resolution_details?.trim()" class="status-update-hint">Resolved and Closed are unavailable until an administrator adds resolution details.</p>
+            <p v-else class="status-update-hint">Only the status can be changed here. Severity, assignment, and resolution details remain protected.</p>
+            <p v-if="reporterStatusErrors[incident.id]" class="form-message error-message" role="alert">{{ reporterStatusErrors[incident.id] }}</p>
+            <p v-if="reporterStatusMessages[incident.id]" class="form-message success-message" role="status">{{ reporterStatusMessages[incident.id] }}</p>
+            <button class="submit-button" :disabled="savingReporterStatusId === incident.id || reporterStatusFor(incident) === incident.status" type="button" @click="saveReporterStatus(incident)">
+              {{ savingReporterStatusId === incident.id ? 'Saving…' : 'Update Status' }}
+            </button>
+          </section>
+          <section class="history-section employee-history">
+            <h4>Incident history</h4>
+            <p v-if="historyFor(incident.id).length === 0" class="history-empty">No updates are available.</p>
+            <ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ categoryLabel(update.event_type) }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${statusLabel(update.old_status)} → ` : '' }}{{ statusLabel(update.new_status) }}</small></div></li></ol>
+          </section>
+        </article>
+      </div>
+      <div v-else class="table-scroll">
         <table>
           <thead>
             <tr>
@@ -629,6 +703,29 @@ th { padding: 11px 14px; border-top: 1px solid var(--ns-border-edf0e9, #edf0e9);
 th:first-child { padding-left: 20px; }
 .table-empty { display: grid; min-height: 142px; place-content: center; justify-items: center; gap: 7px; padding: 20px; color: var(--ns-text-98a49b, #98a49b); text-align: center; }
 .table-empty span { max-width: 440px; color: var(--ns-text-829187, #829187); font-size: 10px; line-height: 1.6; }
+.employee-incident-list { display: grid; gap: 14px; padding: 0 20px 20px; }
+.employee-incident-card { display: grid; min-width: 0; gap: 16px; border: 1px solid var(--ns-border-e9ede7, #e9ede7); border-radius: 12px; padding: 20px; }
+.employee-incident-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.employee-incident-title { min-width: 0; }
+.employee-incident-title .eyebrow { margin-bottom: 5px; }
+.employee-incident-title h3 { margin: 0; color: var(--ns-text-18352d, #18352d); font-size: 17px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.incident-badges { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.employee-incident-card .severity-pill, .employee-incident-card .status-pill { align-items: center; min-height: 27px; padding: 5px 10px; font-size: 10px; font-weight: 700; }
+.employee-incident-description { margin: 0; color: var(--ns-text-52645a, #52645a); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.incident-metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 20px; margin: 0; border-top: 1px solid var(--ns-border-edf0e9, #edf0e9); padding-top: 15px; }
+.incident-metadata > div { min-width: 0; }
+.incident-metadata dt { margin-bottom: 4px; color: var(--ns-text-829187, #829187); font-size: 10px; font-weight: 700; line-height: 1.4; }
+.incident-metadata dd { margin: 0; color: var(--ns-text-364d40, #364d40); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.reporter-status-panel { display: grid; gap: 11px; border: 1px solid var(--ns-border-e4e9e2, #e4e9e2); border-radius: 10px; padding: 15px; background: var(--ns-bg-fafbf9, #fafbf9); }
+.reporter-status-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reporter-status-heading h4, .employee-history h4 { margin: 0; color: var(--ns-text-30493b, #30493b); font-size: 13px; font-weight: 700; line-height: 1.4; }
+.reporter-status-heading p { margin: 3px 0 0; color: var(--ns-text-718178, #718178); font-size: 11px; line-height: 1.5; }
+.reporter-status-field { max-width: 360px; }
+.status-update-hint { margin: 0; color: var(--ns-text-718178, #718178); font-size: 11px; line-height: 1.5; }
+.reporter-status-panel .form-message { font-size: 11px; }
+.employee-history { border-top: 1px solid var(--ns-border-edf0e9, #edf0e9); padding-top: 15px; }
+.employee-history h4 { margin-bottom: 10px; }
+.employee-empty { margin: 0; }
 .preparedness-section { display: grid; gap: 13px; }
 .preparedness-section > .section-heading { padding: 0 2px; }
 .resource-safety-note { margin: 0; border-left: 3px solid var(--ns-primary); padding: 10px 12px; background: var(--ns-blue-soft); color: var(--ns-text-primary); font-size: 10px; line-height: 1.6; }
@@ -658,6 +755,11 @@ th:first-child { padding-left: 20px; }
   .full-field, .form-message, .form-actions { grid-column: auto; }
   .form-actions { align-items: flex-start; flex-direction: column; }
   .active-list { margin-right: 12px; margin-left: 12px; }
+  .employee-incident-list { padding-right: 12px; padding-left: 12px; }
+  .employee-incident-card { gap: 14px; padding: 15px; }
+  .employee-incident-header { flex-direction: column; }
+  .incident-badges { justify-content: flex-start; }
+  .incident-metadata { gap: 12px; }
 }
 @media (max-width: 420px) {
   .overview-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
@@ -668,5 +770,6 @@ th:first-child { padding-left: 20px; }
   .heading-icon { flex-basis: 40px; width: 40px; height: 40px; }
   .connection-state { margin-left: 50px; }
   .empty-panel { align-items: flex-start; margin-right: 12px; margin-left: 12px; padding: 12px; }
+  .incident-metadata { grid-template-columns: 1fr; }
 }
 </style>
