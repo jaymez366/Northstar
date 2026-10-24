@@ -71,6 +71,7 @@
           </p>
 
           <div class="hero-actions">
+
             <router-link
               v-if="auth.isAuthenticated"
               class="button button-primary"

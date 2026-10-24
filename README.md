@@ -62,6 +62,20 @@ npm run dev
 npm run build
 ```
 
+## Employee call configuration
+
+Voice and video calls use browser WebRTC and the private Supabase call-signaling
+RPCs described in the application change review. Configure `VITE_NORTHSTAR_STUN_URLS`
+as a comma-separated list of STUN URIs. Production deployments also need
+`VITE_NORTHSTAR_TURN_URLS` and `VITE_NORTHSTAR_TURN_CREDENTIALS_URL`. The HTTPS
+credential endpoint must authenticate the Supabase bearer token and return short-lived
+`{ "username": "...", "credential": "...", "expires_at": "ISO-8601" }` TURN credentials.
+Do not put TURN passwords or long-lived credentials in Vite variables; Vite variables
+are public in the browser bundle. Set the three values in local untracked environment
+configuration and Cloudflare Pages build variables. The current client accepts short-lived
+credentials in memory only. A real TURN service and two-user connectivity test are
+required before production call reliability can be claimed.
+
 ## 🧪 Available Scripts
 
 - `npm run dev`

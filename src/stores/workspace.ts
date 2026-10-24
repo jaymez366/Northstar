@@ -1,10 +1,12 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
+import { isSupabaseConfigured, supabase, uploadPrivateMessageObject } from '../../lib/supabase.js'
 
 const isUuid = (value: string | null | undefined): value is string =>
   typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+
+const pendingAttachmentRequests = new Map<string, { requestId: string, path: string }>()
 
 export type Employee = {
   id: string
@@ -15,6 +17,7 @@ export type Employee = {
   email: string
   phone: string
   online: boolean | null
+  lastSeenAt: string | null
   initials: string
   color: string
   photoUrl?: string
@@ -38,6 +41,24 @@ export type ChatMessage = {
   sentAt: string
   createdAt: string
   mine: boolean
+  editedAt: string | null
+  deletedAt: string | null
+  contentVersion: number
+  deliveryCount: number
+  readCount: number
+  recipientCount: number
+  replyTo: { id: string, author: string, text: string } | null
+  reactions: { emoji: string, count: number, reactedByMe: boolean }[]
+  attachments: MessageAttachment[]
+}
+
+export type MessageAttachment = {
+  id: string
+  storagePath: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  durationSeconds: number | null
 }
 
 export type Conversation = {
@@ -48,7 +69,12 @@ export type Conversation = {
   initials: string
   color: string
   online: boolean | null
+  lastSeenAt: string | null
   unread: number
+  archived: boolean
+  markedUnread: boolean
+  pinnedMessageIds: string[]
+  typingUserIds: string[]
   updatedAt: string
   messages: ChatMessage[]
 }
@@ -96,12 +122,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const activityLogs = ref<{ id: string, action: string, description: string, createdAt: string, user: string }[]>([])
   const backendError = ref('')
   const messageSyncError = ref('')
+  const receiptError = ref('')
+  const presenceError = ref('')
+  const interactionError = ref('')
+  const conversationStateError = ref('')
+  const typingError = ref('')
   const messageToast = ref<{ title: string, preview: string, conversationId: string, notificationId: string } | null>(null)
   const loading = ref(false)
   let realtimeChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   let notificationChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   let messageToastTimer: ReturnType<typeof setTimeout> | undefined
   let conversationRefreshPromise: Promise<string> | null = null
+  let presenceHeartbeatTimer: ReturnType<typeof setInterval> | undefined
+  let presenceVisibilityHandler: (() => void) | undefined
+  let typingRefreshTimer: ReturnType<typeof setInterval> | undefined
+  const lastTypingSentAt = new Map<string, number>()
+  const pendingMessageRequests = new Map<string, string>()
   const unreadNotifications = computed(() => notificationList.value.filter(item => item.unread).length)
   const departments = computed(() => {
     return departmentList.value.map(department => ({
@@ -164,6 +200,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     loading.value = true
     backendError.value = ''
+    receiptError.value = ''
+    presenceError.value = ''
+    interactionError.value = ''
+    conversationStateError.value = ''
+    typingError.value = ''
     employeeList.value = []
     announcementList.value = []
     conversations.value = []
@@ -221,6 +262,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           email: row.email ?? '',
           phone: '',
           online: null,
+          lastSeenAt: null,
           initials: `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase(),
           color: avatarColors[(row.id.codePointAt(0) ?? 0) % avatarColors.length] ?? '#dce8ba',
           photoUrl,
@@ -372,10 +414,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!isSupabaseConfigured || !supabase || !isUuid(auth.userId) || auth.isAdmin || !auth.canAccessEmployeeWorkspace || realtimeChannel) {
       return
     }
+    startPresenceTracking()
     realtimeChannel = supabase
       .channel(`northstar-messages-${useAuthStore().userId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-        const message = payload.new as { id: string, conversation_id: string, sender_id: string, content: string, created_at: string }
+        const message = payload.new as { id: string, conversation_id: string, sender_id: string, content: string, created_at: string, edited_at?: string | null, deleted_at?: string | null, content_version?: number }
         if (!isUuid(message.id) || !isUuid(message.conversation_id) || !isUuid(message.sender_id)) return
         const conversation = conversations.value.find(item => item.id === message.conversation_id)
         if (!conversation) {
@@ -393,7 +436,19 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(message.created_at)),
           createdAt: message.created_at,
           mine: message.sender_id === useAuthStore().userId,
+          editedAt: message.edited_at ?? null,
+          deletedAt: message.deleted_at ?? null,
+          contentVersion: Number.isInteger(message.content_version) && (message.content_version ?? 0) > 0 ? message.content_version! : 1,
+          deliveryCount: 0,
+          readCount: 0,
+          recipientCount: 0,
+          replyTo: null,
+          reactions: [],
+          attachments: [],
         })
+        if (message.sender_id !== useAuthStore().userId) {
+          void acknowledgeMessageDelivery([{ id: message.id, version: Number.isInteger(message.content_version) && (message.content_version ?? 0) > 0 ? message.content_version! : 1 }])
+        }
         conversation.messages.sort(compareChatMessages)
         if (message.sender_id !== useAuthStore().userId) {
           conversation.unread += 1
@@ -401,10 +456,35 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         conversation.updatedAt = 'Now'
         conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, () => {
+        void refreshConversations()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_recipient_receipts' }, () => {
+        void refreshMessageReceipts()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_replies' }, () => {
+        void refreshMessageInteractions()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, () => {
+        void refreshMessageInteractions()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_attachments' }, () => {
+        void refreshMessageInteractions()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'northstar_conversation_user_state' }, () => {
+        void refreshConversations()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'northstar_conversation_message_pins' }, () => {
+        void refreshConversations()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'northstar_conversation_typing' }, () => {
+        void refreshConversationTyping()
+      })
       .subscribe(status => {
         if (status === 'SUBSCRIBED') {
           messageSyncError.value = ''
           void refreshConversations()
+          if (!typingRefreshTimer) typingRefreshTimer = setInterval(() => { void refreshConversationTyping() }, 4000)
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           messageSyncError.value = `Message updates are temporarily unavailable (${status}). Use Refresh messages to check for new activity.`
           backendError.value = `Supabase Realtime subscription failed: ${status}`
@@ -461,6 +541,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function unsubscribeFromMessages () {
+    stopPresenceTracking()
+    if (typingRefreshTimer) clearInterval(typingRefreshTimer)
+    typingRefreshTimer = undefined
+    for (const conversationId of lastTypingSentAt.keys()) void updateConversationTyping(conversationId, false)
+    lastTypingSentAt.clear()
     if (realtimeChannel && supabase) {
       void supabase.removeChannel(realtimeChannel)
     }
@@ -485,6 +570,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activityLogs.value = []
     backendError.value = ''
     messageSyncError.value = ''
+    receiptError.value = ''
+    presenceError.value = ''
+    interactionError.value = ''
+    conversationStateError.value = ''
+    typingError.value = ''
     loading.value = false
   }
 
@@ -507,11 +597,27 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const ids = [...new Set((memberships ?? []).map(row => row.conversation_id).filter(isUuid))]
     if (ids.length === 0) {
       conversations.value = []
+      interactionError.value = ''
+      conversationStateError.value = ''
       return ''
+    }
+    const [stateResult, pinsResult] = await Promise.all([
+      supabase.from('northstar_conversation_user_state').select('conversation_id,archived_at,unread_override').eq('user_id', auth.userId).in('conversation_id', ids),
+      supabase.from('northstar_conversation_message_pins').select('conversation_id,message_id').eq('user_id', auth.userId).in('conversation_id', ids),
+    ])
+    conversationStateError.value = stateResult.error || pinsResult.error
+      ? `Conversation archive, unread, or pin details are unavailable: ${stateResult.error?.message ?? pinsResult.error?.message}`
+      : ''
+    const states = new Map((stateResult.data ?? []).map(row => [row.conversation_id, row]))
+    const pinsByConversation = new Map<string, string[]>()
+    for (const pin of pinsResult.data ?? []) {
+      const current = pinsByConversation.get(pin.conversation_id) ?? []
+      current.push(pin.message_id)
+      pinsByConversation.set(pin.conversation_id, current)
     }
     const { data, error } = await supabase
       .from('conversations')
-      .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at)')
+      .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at,edited_at,deleted_at,content_version)')
       .in('id', ids)
       .order('updated_at', { ascending: false })
     if (error) return error.message
@@ -524,6 +630,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const firstName = profile?.first_name ?? 'Colleague'
       const lastName = profile?.last_name ?? ''
       const messages = sortByCreatedAt(Array.isArray(row.messages) ? row.messages : [])
+      const state = states.get(row.id)
+      const unreadCount = messages.filter((message: { sender_id: string, created_at: string }) => message.sender_id !== auth.userId && (!ownMembership?.last_read_at || message.created_at > ownMembership.last_read_at)).length
       return {
         id: row.id,
         employeeId: peer?.user_id ?? '',
@@ -532,20 +640,115 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         initials: `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase(),
         color: '#dce8ba',
         online: null,
-        unread: messages.filter((message: { sender_id: string, created_at: string }) => message.sender_id !== auth.userId && (!ownMembership?.last_read_at || message.created_at > ownMembership.last_read_at)).length,
+        lastSeenAt: null,
+        unread: state?.unread_override ? Math.max(1, unreadCount) : unreadCount,
+        archived: Boolean(state?.archived_at),
+        markedUnread: Boolean(state?.unread_override),
+        pinnedMessageIds: pinsByConversation.get(row.id) ?? [],
+        typingUserIds: [],
         updatedAt: row.updated_at ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(row.updated_at)) : '',
-        messages: messages.map((message: { id: string, sender_id: string, content: string, created_at: string }) => ({
+        messages: messages.map((message: { id: string, sender_id: string, content: string, created_at: string, edited_at?: string | null, deleted_at?: string | null, content_version?: number }) => ({
           id: message.id,
           author: message.sender_id === auth.userId ? 'You' : `${firstName} ${lastName}`.trim(),
-          text: message.content,
+          text: message.deleted_at ? 'This message was deleted' : message.content,
           sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(message.created_at)),
           createdAt: message.created_at,
           mine: message.sender_id === auth.userId,
+          editedAt: message.edited_at ?? null,
+          deletedAt: message.deleted_at ?? null,
+          contentVersion: Number.isInteger(message.content_version) && (message.content_version ?? 0) > 0 ? message.content_version! : 1,
+          deliveryCount: 0,
+          readCount: 0,
+          recipientCount: 0,
+          replyTo: null,
+          reactions: [],
+          attachments: [],
         })),
       }
     }).filter(item => item.messages.length > 0)
     conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
+    applyConversationPresence()
+    const incomingMessages = conversations.value.flatMap(conversation => conversation.messages.filter(message => !message.mine && !message.deletedAt))
+    if (incomingMessages.length > 0) void acknowledgeMessageDelivery(incomingMessages.map(message => ({ id: message.id, version: message.contentVersion })))
+    void refreshMessageReceipts()
+    void refreshMessageInteractions()
+    void refreshConversationTyping()
     return ''
+  }
+
+  function applyConversationPresence () {
+    for (const conversation of conversations.value) {
+      const peer = employeeList.value.find(employee => employee.id === conversation.employeeId)
+      conversation.online = peer?.online ?? null
+      conversation.lastSeenAt = peer?.lastSeenAt ?? null
+    }
+  }
+
+  async function refreshPresence () {
+    if (!supabase || !isSupabaseConfigured) {
+      return false
+    }
+    const ids = employeeList.value.map(employee => employee.id).filter(isUuid)
+    if (ids.length === 0) {
+      presenceError.value = ''
+      return true
+    }
+    const { data, error } = await supabase.rpc('northstar_list_employee_presence', { p_user_ids: ids })
+    if (error) {
+      console.warn('Employee presence is temporarily unavailable.', error.message)
+      for (const employee of employeeList.value) {
+        employee.online = null
+        employee.lastSeenAt = null
+      }
+      applyConversationPresence()
+      presenceError.value = `Could not refresh employee presence: ${error.message}`
+      return false
+    }
+    const rows = (Array.isArray(data) ? data : []) as { user_id: string, last_seen_at: string | null, is_online: boolean }[]
+    const presenceByUser = new Map(rows.map(row => [row.user_id, row]))
+    for (const employee of employeeList.value) {
+      const presence = presenceByUser.get(employee.id)
+      employee.online = presence?.is_online === true
+      employee.lastSeenAt = presence?.last_seen_at ?? null
+    }
+    applyConversationPresence()
+    presenceError.value = ''
+    return true
+  }
+
+  async function sendPresenceHeartbeat () {
+    if (!supabase || !isSupabaseConfigured || document.visibilityState !== 'visible') {
+      return
+    }
+    const { error } = await supabase.rpc('northstar_presence_heartbeat')
+    if (error) {
+      console.warn('Presence heartbeat could not be recorded.', error.message)
+    }
+    const refreshed = await refreshPresence()
+    if (error) {
+      const refreshFailure = refreshed ? '' : ` ${presenceError.value}`
+      presenceError.value = `Presence heartbeat failed: ${error.message}.${refreshFailure}`
+    }
+  }
+
+  function startPresenceTracking () {
+    stopPresenceTracking()
+    if (typeof document === 'undefined') return
+    presenceVisibilityHandler = () => {
+      if (document.visibilityState === 'visible') void sendPresenceHeartbeat()
+    }
+    document.addEventListener('visibilitychange', presenceVisibilityHandler)
+    void sendPresenceHeartbeat()
+    presenceHeartbeatTimer = setInterval(() => { void sendPresenceHeartbeat() }, 30_000)
+  }
+
+  function stopPresenceTracking () {
+    if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer)
+    presenceHeartbeatTimer = undefined
+    if (presenceVisibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', presenceVisibilityHandler)
+    }
+    presenceVisibilityHandler = undefined
   }
 
   async function startConversation (employeeId: string) {
@@ -566,6 +769,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return ''
     }
     if (typeof data !== 'string') {
+      backendError.value = 'Could not start conversation: Supabase returned an unexpected conversation ID.'
       return ''
     }
     return data
@@ -576,10 +780,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!trimmed) return false
     const id = await startConversation(employeeId)
     if (!id || !isSupabaseConfigured || !supabase) return false
-    const { error } = await supabase.from('messages').insert({ conversation_id: id, content: trimmed })
-    if (error) {
-      backendError.value = `Could not send message: ${error.message}`
-      console.error(backendError.value, error)
+    if (!await persistMessage(id, trimmed)) {
       return false
     }
     const refreshError = await refreshConversations()
@@ -588,7 +789,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return true
   }
 
-  async function sendMessage (conversationId: string, text: string) {
+  async function sendMessage (conversationId: string, text: string, replyToMessageId?: string) {
     if (!isUuid(conversationId) || !isUuid(useAuthStore().userId)) return false
     const conversation = conversations.value.find(item => item.id === conversationId)
     const trimmed = text.trim()
@@ -601,29 +802,404 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return false
     }
 
-    const { data, error } = await supabase.from('messages').insert({
-      conversation_id: conversationId,
-      content: trimmed,
-    }).select('id,sender_id,content,created_at').single()
+    return persistMessage(conversationId, trimmed, replyToMessageId)
+  }
+
+  async function persistMessage (conversationId: string, trimmed: string, replyToMessageId?: string) {
+    const conversation = conversations.value.find(item => item.id === conversationId)
+    if (!isSupabaseConfigured || !supabase) return false
+    if (replyToMessageId && (!isUuid(replyToMessageId) || !conversation?.messages.some(message => message.id === replyToMessageId))) {
+      backendError.value = 'The message you are replying to is unavailable.'
+      return false
+    }
+    const requestKey = await messageRequestKey(useAuthStore().userId, conversationId, trimmed, replyToMessageId)
+    let requestId = pendingMessageRequests.get(requestKey)
+    if (!requestId && requestKey.startsWith('northstar.pending:')) {
+      try {
+        requestId = sessionStorage.getItem(requestKey) ?? undefined
+      } catch {
+        // Keep retries idempotent for the current runtime if browser storage is unavailable.
+      }
+    }
+    if (!requestId) {
+      requestId = crypto.randomUUID()
+      pendingMessageRequests.set(requestKey, requestId)
+      if (requestKey.startsWith('northstar.pending:')) {
+        try {
+          sessionStorage.setItem(requestKey, requestId)
+        } catch {
+          // The in-memory request ID still protects retries until this page is closed.
+        }
+      }
+    }
+    const { data, error } = replyToMessageId
+      ? await supabase.rpc('northstar_send_message_reply', {
+        p_conversation_id: conversationId,
+        p_content: trimmed,
+        p_client_request_id: requestId,
+        p_reply_to_message_id: replyToMessageId,
+      })
+      : await supabase.rpc('northstar_send_message', {
+        p_conversation_id: conversationId,
+        p_content: trimmed,
+        p_client_request_id: requestId,
+      })
     if (error) {
-      backendError.value = `Could not send message: ${error.message}`
+      backendError.value = `Could not send message. Retry to safely check this same send request: ${error.message}`
       console.error(backendError.value, error)
       return false
     }
-    if (!conversation.messages.some(item => item.id === data.id)) {
+    const row = Array.isArray(data) ? data[0] : data
+    if (!row || typeof row.id !== 'string' || typeof row.created_at !== 'string') {
+      backendError.value = 'The message was accepted, but the server returned an unexpected response. Refresh the inbox before retrying.'
+      return false
+    }
+    pendingMessageRequests.delete(requestKey)
+    if (requestKey.startsWith('northstar.pending:')) {
+      try {
+        sessionStorage.removeItem(requestKey)
+      } catch {
+        // The send is already confirmed; storage cleanup is best-effort.
+      }
+    }
+    if (conversation && !conversation.messages.some(item => item.id === row.id)) {
       conversation.messages.push({
-        id: data.id,
+        id: row.id,
         author: 'You',
-        text: data.content,
-        sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(data.created_at)),
-        createdAt: data.created_at,
+        text: row.deleted_at ? 'This message was deleted' : row.content,
+        sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(row.created_at)),
+        createdAt: row.created_at,
         mine: true,
+        editedAt: row.edited_at ?? null,
+        deletedAt: row.deleted_at ?? null,
+        contentVersion: Number.isInteger(row.content_version) && row.content_version > 0 ? row.content_version : 1,
+        deliveryCount: 0,
+        readCount: 0,
+        recipientCount: 0,
+        replyTo: null,
+        reactions: [],
+        attachments: [],
       })
     }
-    conversation.updatedAt = 'Now'
-    conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
+    if (conversation) {
+      conversation.updatedAt = 'Now'
+      conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
+    } else {
+      await refreshConversations()
+    }
+    if (replyToMessageId) await refreshMessageInteractions()
     backendError.value = ''
+    void refreshMessageReceipts()
     return true
+  }
+
+  async function acknowledgeMessageDelivery (messages: { id: string, version: number }[]) {
+    if (!supabase || !isSupabaseConfigured || !isUuid(useAuthStore().userId)) return false
+    const receipts = [...new Map(messages.filter(message => isUuid(message.id) && Number.isInteger(message.version) && message.version > 0).map(message => [message.id, message.version])).entries()].map(([message_id, message_version]) => ({ message_id, message_version }))
+    if (receipts.length === 0) return false
+    const { error } = await supabase.rpc('northstar_acknowledge_message_delivery', { p_message_versions: receipts })
+    if (error) {
+      console.warn('Message delivery acknowledgement could not be recorded.', error.message)
+      messageSyncError.value = `A message delivery receipt could not be recorded: ${error.message}`
+      return false
+    }
+    messageSyncError.value = ''
+    return true
+  }
+
+  async function acknowledgeMessageVisible (messageId: string, messageVersion: number) {
+    if (!isUuid(messageId) || !Number.isInteger(messageVersion) || messageVersion < 1 || !supabase || !isSupabaseConfigured || !isUuid(useAuthStore().userId)) return false
+    const { error } = await supabase.rpc('northstar_acknowledge_message_visible', { p_message_id: messageId, p_message_version: messageVersion })
+    if (error) {
+      console.warn('Visible message acknowledgement could not be recorded.', error.message)
+      messageSyncError.value = `A message read receipt could not be recorded: ${error.message}`
+      return false
+    }
+    messageSyncError.value = ''
+    await refreshMessageReceipts()
+    return true
+  }
+
+  async function refreshMessageReceipts () {
+    if (!supabase || !isSupabaseConfigured || !isUuid(useAuthStore().userId)) {
+      return
+    }
+    const ownMessageIds = conversations.value.flatMap(conversation => conversation.messages.filter(message => message.mine && !message.deletedAt).map(message => message.id))
+    if (ownMessageIds.length === 0) {
+      for (const conversation of conversations.value) {
+        for (const message of conversation.messages) {
+          if (!message.mine) {
+            continue
+          }
+          message.recipientCount = 0
+          message.deliveryCount = 0
+          message.readCount = 0
+        }
+      }
+      receiptError.value = ''
+      return
+    }
+    const { data, error } = await supabase.rpc('northstar_list_message_receipts', { p_message_ids: ownMessageIds })
+    if (error) {
+      console.warn('Message receipt details are temporarily unavailable.', error.message)
+      receiptError.value = `Could not refresh delivery and read receipts: ${error.message}`
+      return
+    }
+    receiptError.value = ''
+    const receipts = (Array.isArray(data) ? data : []) as { message_id: string, recipient_id: string, delivered_at: string | null, read_at: string | null }[]
+    for (const conversation of conversations.value) {
+      for (const message of conversation.messages) {
+        if (!message.mine) continue
+        const messageReceipts = receipts.filter(receipt => receipt.message_id === message.id)
+        message.recipientCount = messageReceipts.length
+        message.deliveryCount = messageReceipts.filter(receipt => receipt.delivered_at).length
+        message.readCount = messageReceipts.filter(receipt => receipt.read_at).length
+      }
+    }
+  }
+
+  async function refreshMessageInteractions () {
+    if (!supabase || !isSupabaseConfigured) return
+    const messages = conversations.value.flatMap(conversation => conversation.messages)
+    const ids = messages.map(message => message.id).filter(isUuid)
+    if (!ids.length) {
+      interactionError.value = ''
+      return
+    }
+    const [replyResult, reactionResult, attachmentResult] = await Promise.all([
+      supabase.from('message_replies').select('message_id,reply_to_message_id').in('message_id', ids),
+      supabase.from('message_reactions').select('message_id,user_id,emoji').in('message_id', ids),
+      supabase.from('message_attachments').select('id,message_id,storage_path,file_name,mime_type,size_bytes,duration_seconds').in('message_id', ids),
+    ])
+    if (replyResult.error || reactionResult.error || attachmentResult.error) {
+      interactionError.value = `Could not refresh message details: ${replyResult.error?.message ?? reactionResult.error?.message ?? attachmentResult.error?.message}`
+      return
+    }
+    interactionError.value = ''
+    const byId = new Map(messages.map(message => [message.id, message]))
+    const userId = useAuthStore().userId
+    for (const message of messages) {
+      const relation = (replyResult.data ?? []).find(row => row.message_id === message.id)
+      const target = relation ? byId.get(relation.reply_to_message_id) : undefined
+      message.replyTo = relation ? {
+        id: relation.reply_to_message_id,
+        author: target?.author ?? 'Colleague',
+        text: target?.deletedAt ? 'This message was deleted' : target?.text ?? 'Message unavailable',
+      } : null
+      const grouped = new Map<string, { emoji: string, count: number, reactedByMe: boolean }>()
+      for (const row of (reactionResult.data ?? []).filter(item => item.message_id === message.id)) {
+        const item = grouped.get(row.emoji) ?? { emoji: row.emoji, count: 0, reactedByMe: false }
+        item.count += 1
+        item.reactedByMe ||= row.user_id === userId
+        grouped.set(row.emoji, item)
+      }
+      message.reactions = [...grouped.values()]
+      message.attachments = (attachmentResult.data ?? []).filter(row => row.message_id === message.id).map(row => ({
+        id: row.id,
+        storagePath: row.storage_path,
+        fileName: row.file_name,
+        mimeType: row.mime_type,
+        sizeBytes: row.size_bytes,
+        durationSeconds: row.duration_seconds,
+      }))
+    }
+  }
+
+  async function toggleMessageReaction (messageId: string, emoji: string) {
+    const message = findMessage(messageId)
+    const userId = useAuthStore().userId
+    const allowedEmoji = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+    if (!message || message.deletedAt || !allowedEmoji.includes(emoji) || !isUuid(userId) || !supabase || !isSupabaseConfigured) return false
+    const selected = message.reactions.find(reaction => reaction.emoji === emoji)?.reactedByMe
+    const result = selected
+      ? await supabase.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', userId).eq('emoji', emoji)
+      : await supabase.from('message_reactions').insert({ message_id: messageId, user_id: userId, emoji })
+    if (result.error) {
+      backendError.value = `Could not update reaction: ${result.error.message}`
+      await refreshMessageInteractions()
+      return false
+    }
+    backendError.value = ''
+    await refreshMessageInteractions()
+    return true
+  }
+
+  async function sendMessageAttachment (
+    conversationId: string,
+    file: File,
+    caption: string,
+    durationSeconds: number | null,
+    onProgress: (percent: number) => void,
+    signal: AbortSignal,
+  ) {
+    const auth = useAuthStore()
+    const mimeType = file.type.split(';')[0]?.trim().toLowerCase() ?? ''
+    const audioTypes = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav']
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'video/mp4', 'video/webm',
+      'application/pdf', 'text/plain', 'text/csv',
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ...audioTypes,
+    ]
+    const isAudio = audioTypes.includes(mimeType)
+    const maxBytes = isAudio ? 10 * 1024 * 1024 : 25 * 1024 * 1024
+    if (!supabase || !isSupabaseConfigured || !isUuid(conversationId) || !isUuid(auth.userId) || auth.isAdmin || !auth.canAccessEmployeeWorkspace) {
+      backendError.value = 'Sign in with an employee account and open an authorized conversation before uploading.'
+      return false
+    }
+    if (!allowedTypes.includes(mimeType) || file.size < 1 || file.size > maxBytes) {
+      backendError.value = isAudio
+        ? 'Voice recordings must use a supported audio format and be no larger than 10 MB.'
+        : 'Choose a supported image, video or document file no larger than 25 MB.'
+      return false
+    }
+    if (isAudio && (!Number.isFinite(durationSeconds) || !durationSeconds || durationSeconds > 300)) {
+      backendError.value = 'Voice recordings must be between 1 second and 5 minutes.'
+      return false
+    }
+    if (signal.aborted) return false
+
+    const extensionByType: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+      'video/mp4': 'mp4', 'video/webm': 'webm',
+      'application/pdf': 'pdf', 'text/plain': 'txt', 'text/csv': 'csv',
+      'application/msword': 'doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.ms-excel': 'xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'application/vnd.ms-powerpoint': 'ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+      'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav',
+    }
+    let requestKey: string
+    try {
+      requestKey = await attachmentRequestKey(auth.userId, conversationId, file, caption, durationSeconds)
+    } catch (error) {
+      backendError.value = error instanceof Error ? error.message : 'Could not prepare a safe attachment retry key.'
+      return false
+    }
+    let request = pendingAttachmentRequests.get(requestKey)
+    if (!request) {
+      try {
+        const saved = sessionStorage.getItem(requestKey)
+        request = saved ? JSON.parse(saved) as { requestId: string, path: string } : undefined
+      } catch {
+        request = undefined
+      }
+    }
+    if (!request) {
+      const requestId = crypto.randomUUID()
+      request = {
+        requestId,
+        path: `${conversationId}/${auth.userId}/${requestId}.${extensionByType[mimeType]}`,
+      }
+      pendingAttachmentRequests.set(requestKey, request)
+      try { sessionStorage.setItem(requestKey, JSON.stringify(request)) } catch { /* In-memory retry remains available. */ }
+    }
+    if (!isUuid(request.requestId) || request.path !== `${conversationId}/${auth.userId}/${request.requestId}.${extensionByType[mimeType]}`) {
+      pendingAttachmentRequests.delete(requestKey)
+      const requestId = crypto.randomUUID()
+      request = {
+        requestId,
+        path: `${conversationId}/${auth.userId}/${requestId}.${extensionByType[mimeType]}`,
+      }
+      pendingAttachmentRequests.set(requestKey, request)
+      try { sessionStorage.setItem(requestKey, JSON.stringify(request)) } catch { /* In-memory retry remains available. */ }
+    }
+
+    backendError.value = ''
+    try {
+      const uploadFile = file.type === mimeType ? file : new File([file], file.name, { type: mimeType, lastModified: file.lastModified })
+      await uploadPrivateMessageObject(request.path, uploadFile, onProgress, signal)
+    } catch (error) {
+      backendError.value = error instanceof Error ? error.message : 'The attachment upload failed.'
+      return false
+    }
+
+    const { data, error } = await supabase.rpc('northstar_send_message_attachment', {
+      p_conversation_id: conversationId,
+      p_storage_path: request.path,
+      p_file_name: file.name.slice(0, 180),
+      p_mime_type: mimeType,
+      p_size_bytes: file.size,
+      p_caption: caption.trim(),
+      p_client_request_id: request.requestId,
+      p_duration_seconds: durationSeconds,
+    })
+    if (error) {
+      backendError.value = `The file uploaded, but its message could not be saved: ${error.message}. Retry with the same file to safely finish or check the conversation first.`
+      return false
+    }
+    const row = Array.isArray(data) ? data[0] : data
+    if (!row || typeof row.id !== 'string') {
+      backendError.value = 'The attachment message returned an unexpected response. Refresh the conversation before retrying.'
+      return false
+    }
+    pendingAttachmentRequests.delete(requestKey)
+    try { sessionStorage.removeItem(requestKey) } catch { /* Successful upload already has a server record. */ }
+    backendError.value = ''
+    const refreshError = await refreshConversations()
+    if (refreshError) backendError.value = `Attachment sent, but the conversation could not be refreshed: ${refreshError}`
+    return true
+  }
+
+  async function getMessageAttachmentUrl (storagePath: string) {
+    if (!supabase || !isSupabaseConfigured || !storagePath) return ''
+    const { data, error } = await supabase.storage.from('northstar-message-attachments').createSignedUrl(storagePath, 300)
+    if (error) {
+      backendError.value = `Could not open this private attachment: ${error.message}`
+      return ''
+    }
+    return data.signedUrl
+  }
+
+  async function editMessage (messageId: string, content: string) {
+    const message = findMessage(messageId)
+    const trimmed = content.trim()
+    if (!message || !message.mine || message.deletedAt || !trimmed || !supabase || !isSupabaseConfigured) return false
+    const { error } = await supabase.rpc('northstar_edit_message', { p_message_id: messageId, p_content: trimmed })
+    if (error) {
+      backendError.value = `Could not edit message: ${error.message}`
+      return false
+    }
+    backendError.value = ''
+    await refreshConversations()
+    return true
+  }
+
+  async function deleteMessageForEveryone (messageId: string) {
+    const message = findMessage(messageId)
+    if (!message || !message.mine || message.deletedAt || !supabase || !isSupabaseConfigured) return false
+    const { error } = await supabase.rpc('northstar_delete_message_for_everyone', { p_message_id: messageId })
+    if (error) {
+      backendError.value = `Could not delete message: ${error.message}`
+      return false
+    }
+    backendError.value = ''
+    await refreshConversations()
+    return true
+  }
+
+  async function hideMessageForMe (messageId: string) {
+    const message = findMessage(messageId)
+    if (!message || !supabase || !isSupabaseConfigured) return false
+    const { error } = await supabase.rpc('northstar_hide_message_for_me', { p_message_id: messageId })
+    if (error) {
+      backendError.value = `Could not hide message: ${error.message}`
+      return false
+    }
+    for (const conversation of conversations.value) conversation.messages = conversation.messages.filter(item => item.id !== messageId)
+    backendError.value = ''
+    await refreshConversations()
+    return true
+  }
+
+  function findMessage (messageId: string) {
+    for (const conversation of conversations.value) {
+      const message = conversation.messages.find(item => item.id === messageId)
+      if (message) return message
+    }
+    return undefined
   }
 
   async function markConversationRead (conversationId: string) {
@@ -636,17 +1212,101 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       backendError.value = 'Marking messages as read requires a configured Northstar Supabase connection.'
       return
     }
-    const { error } = await supabase
-      .from('conversation_members')
-      .update({ last_read_at: new Date().toISOString() })
-      .eq('conversation_id', conversationId)
-      .eq('user_id', useAuthStore().userId)
+    const { error } = await supabase.rpc('northstar_update_conversation_user_state', {
+      p_conversation_id: conversationId,
+      p_action: 'mark_read',
+    })
     if (error) {
       backendError.value = `Could not mark messages as read: ${error.message}`
       console.error(backendError.value, error)
       return
     }
     conversation.unread = 0
+    conversation.markedUnread = false
+  }
+
+  async function setConversationState (conversationId: string, action: 'archive' | 'restore' | 'mark_unread') {
+    const conversation = conversations.value.find(item => item.id === conversationId)
+    if (!conversation || !supabase || !isSupabaseConfigured) return false
+    const { error } = await supabase.rpc('northstar_update_conversation_user_state', {
+      p_conversation_id: conversationId,
+      p_action: action,
+    })
+    if (error) {
+      backendError.value = `Could not ${action.replace('_', ' ')} conversation: ${error.message}`
+      return false
+    }
+    if (action === 'archive') conversation.archived = true
+    if (action === 'restore') conversation.archived = false
+    if (action === 'mark_unread') {
+      conversation.markedUnread = true
+      conversation.unread = Math.max(1, conversation.unread)
+    }
+    backendError.value = ''
+    return true
+  }
+
+  async function setMessagePinned (conversationId: string, messageId: string, pinned: boolean) {
+    const conversation = conversations.value.find(item => item.id === conversationId)
+    if (!conversation || !conversation.messages.some(message => message.id === messageId) || !supabase || !isSupabaseConfigured) return false
+    const { error } = await supabase.rpc('northstar_set_conversation_message_pin', {
+      p_conversation_id: conversationId,
+      p_message_id: messageId,
+      p_is_pinned: pinned,
+    })
+    if (error) {
+      backendError.value = `Could not ${pinned ? 'pin' : 'unpin'} message: ${error.message}`
+      return false
+    }
+    conversation.pinnedMessageIds = pinned
+      ? [...new Set([...conversation.pinnedMessageIds, messageId])]
+      : conversation.pinnedMessageIds.filter(id => id !== messageId)
+    backendError.value = ''
+    return true
+  }
+
+  async function updateConversationTyping (conversationId: string, isTyping: boolean) {
+    const auth = useAuthStore()
+    if (!supabase || !isSupabaseConfigured || !isUuid(auth.userId) || !conversations.value.some(item => item.id === conversationId)) return false
+    const now = Date.now()
+    const lastSent = lastTypingSentAt.get(conversationId) ?? 0
+    if (isTyping && now - lastSent < 3000) return true
+    lastTypingSentAt.set(conversationId, now)
+    const { error } = await supabase.rpc('northstar_set_conversation_typing', {
+      p_conversation_id: conversationId,
+      p_is_typing: isTyping,
+    })
+    if (error) {
+      typingError.value = `Typing indicators are unavailable: ${error.message}`
+      if (!isTyping) lastTypingSentAt.delete(conversationId)
+      return false
+    }
+    typingError.value = ''
+    if (!isTyping) lastTypingSentAt.delete(conversationId)
+    return true
+  }
+
+  async function refreshConversationTyping () {
+    if (!supabase || !isSupabaseConfigured || !isUuid(useAuthStore().userId)) return
+    const ids = conversations.value.map(conversation => conversation.id)
+    if (!ids.length) return
+    const { data, error } = await supabase.from('northstar_conversation_typing')
+      .select('conversation_id,user_id,expires_at')
+      .in('conversation_id', ids)
+      .gt('expires_at', new Date().toISOString())
+      .neq('user_id', useAuthStore().userId)
+    if (error) {
+      typingError.value = `Typing indicators are unavailable: ${error.message}`
+      return
+    }
+    typingError.value = ''
+    const active = new Map<string, string[]>()
+    for (const row of data ?? []) {
+      const users = active.get(row.conversation_id) ?? []
+      users.push(row.user_id)
+      active.set(row.conversation_id, users)
+    }
+    for (const conversation of conversations.value) conversation.typingUserIds = active.get(conversation.id) ?? []
   }
 
   async function markNotificationRead (id: string) {
@@ -821,6 +1481,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activityLogs,
     backendError,
     messageSyncError,
+    receiptError,
+    presenceError,
+    interactionError,
+    conversationStateError,
+    typingError,
     messageToast,
     dismissMessageToast: () => { messageToast.value = null },
     loading,
@@ -835,7 +1500,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     unreadNotifications,
     sendMessage,
     sendFirstMessage,
+    acknowledgeMessageVisible,
+    refreshMessageReceipts,
+    refreshMessageInteractions,
+    toggleMessageReaction,
+    sendMessageAttachment,
+    getMessageAttachmentUrl,
+    editMessage,
+    deleteMessageForEveryone,
+    hideMessageForMe,
     markConversationRead,
+    setConversationState,
+    setMessagePinned,
+    updateConversationTyping,
+    refreshConversationTyping,
     markNotificationRead,
     markAllNotificationsRead,
     deleteNotification,
@@ -850,6 +1528,30 @@ const avatarColors = ['#d9e9a6', '#f0d0c4', '#d4dfee', '#eadcb9', '#d5e8dc', '#e
 
 function relationOne<T> (value: T | T[] | null | undefined): T | undefined {
   return Array.isArray(value) ? value[0] : value ?? undefined
+}
+
+async function messageRequestKey (userId: string, conversationId: string, content: string, replyToMessageId?: string) {
+  const material = replyToMessageId
+    ? `${userId}:${conversationId}\u0000${replyToMessageId}\u0000${content}`
+    : `${userId}:${conversationId}\u0000${content}`
+  if (globalThis.crypto?.subtle && typeof TextEncoder !== 'undefined') {
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(material))
+    const fingerprint = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+    return `northstar.pending:${userId}:${conversationId}:${fingerprint}`
+  }
+  return `memory:${material}`
+}
+
+async function attachmentRequestKey (userId: string, conversationId: string, file: File, caption: string, durationSeconds: number | null) {
+  if (!globalThis.crypto?.subtle || typeof TextEncoder === 'undefined') {
+    throw new Error('Secure attachment retry keys require a browser with Web Crypto support.')
+  }
+  const fileHash = await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const fingerprint = [...new Uint8Array(fileHash)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+  const material = `${userId}:${conversationId}:${file.name}:${file.type}:${file.size}:${fingerprint}:${caption.trim()}:${durationSeconds ?? ''}`
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(material))
+  const keyHash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+  return `northstar.attachment:${userId}:${conversationId}:${keyHash}`
 }
 
 function sortByCreatedAt<T extends { created_at: string, id: string }> (rows: T[]): T[] {

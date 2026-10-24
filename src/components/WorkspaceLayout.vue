@@ -2,6 +2,7 @@
   import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import GlobalSearch from '@/components/GlobalSearch.vue'
+  import CallOverlay from '@/components/CallOverlay.vue'
   import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
   import { useAuthStore } from '@/stores/auth'
   import { useWorkspaceStore } from '@/stores/workspace'
@@ -108,6 +109,7 @@
 
 <template>
   <div class="workspace-shell">
+    <CallOverlay v-if="auth.canAccessEmployeeWorkspace && !auth.isAdmin" />
     <button
       v-if="mobileMenuOpen"
       aria-label="Close navigation menu"
