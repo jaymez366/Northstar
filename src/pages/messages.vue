@@ -33,7 +33,9 @@
   const uploadProgress = ref(0)
   const uploadingAttachment = ref(false)
   const recordingVoice = ref(false)
+  const recordingPaused = ref(false)
   const recordingSeconds = ref(0)
+  const dictating = ref(false)
   const recordedVoiceFile = ref<File | null>(null)
   const recordedVoiceUrl = ref('')
   const searchResultIndex = ref(0)
@@ -45,7 +47,9 @@
   let recorder: MediaRecorder | null = null
   let recordingStream: MediaStream | null = null
   let recordingTimer: ReturnType<typeof setInterval> | undefined
-  let recordingStartedAt = 0
+  let recordingElapsedMs = 0
+  let recordingResumedAt = 0
+  let recognition: SpeechRecognitionLike | null = null
   let discardRecording = false
   let pageIsUnmounting = false
   const acknowledgedVisibleMessageVersions = new Set<string>()
@@ -78,6 +82,22 @@
     return names.length ? `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} typing…` : 'Someone is typing…'
   })
   let visibilityObserver: IntersectionObserver | null = null
+
+  interface SpeechRecognitionLike {
+    continuous: boolean
+    interimResults: boolean
+    lang: string
+    onresult: ((event: { resultIndex: number, results: ArrayLike<{ isFinal: boolean, 0: { transcript: string } }> }) => void) | null
+    onerror: ((event: { error: string }) => void) | null
+    onend: (() => void) | null
+    start: () => void
+    stop: () => void
+    abort: () => void
+  }
+  type SpeechRecognitionWindow = Window & {
+    SpeechRecognition?: new () => SpeechRecognitionLike
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike
+  }
 
   if (typeof IntersectionObserver !== 'undefined') {
     visibilityObserver = new IntersectionObserver(entries => {
@@ -116,6 +136,8 @@
     if (typingStopTimer) clearTimeout(typingStopTimer)
     if (selectedConversation.value) void workspace.updateConversationTyping(selectedConversation.value.id, false)
     stopVoiceRecording(true)
+    recognition?.abort()
+    recognition = null
     if (recordedVoiceUrl.value) URL.revokeObjectURL(recordedVoiceUrl.value)
     for (const url of Object.values(attachmentUrls.value)) URL.revokeObjectURL(url)
     cancelMessagePress()
@@ -161,11 +183,11 @@
   const messageSearchResults = computed(() => {
     const term = messageSearch.value.trim().toLocaleLowerCase()
     if (!term) return []
-    return (selectedConversation.value?.messages ?? []).filter(message => !message.deletedAt && message.text.toLocaleLowerCase().includes(term))
+    return (selectedConversation.value?.messages ?? []).filter(message => !message.callEvent && !message.deletedAt && message.text.toLocaleLowerCase().includes(term))
   })
   watch(messageSearch, () => { searchResultIndex.value = 0 })
 
-  watch(() => selectedConversation.value?.messages.length, async (length, previousLength) => {
+  watch(() => selectedConversation.value?.messages.filter(message => !message.callEvent).length, async (length, previousLength) => {
     if (selectedConversation.value && length !== previousLength) void workspace.markConversationRead(selectedConversation.value.id)
     if (length && previousLength !== undefined && length > previousLength && !nearBottom.value) return
     await nextTick()
@@ -256,6 +278,16 @@
     return `${Math.floor(safeSeconds / 60)}:${String(safeSeconds % 60).padStart(2, '0')}`
   }
 
+  function formatCallDuration (seconds: number) {
+    const safeSeconds = Math.max(0, Math.floor(seconds))
+    if (safeSeconds < 60) return `${safeSeconds} sec`
+    const minutes = Math.floor(safeSeconds / 60)
+    if (minutes < 60) return `${minutes} min ${safeSeconds % 60} sec`
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    return `${hours} hr${hours === 1 ? '' : 's'}${remainingMinutes ? ` ${remainingMinutes} min` : ''}`
+  }
+
   function formatBytes (bytes: number) {
     return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
@@ -319,8 +351,10 @@
       recorder = new MediaRecorder(recordingStream, preferredType ? { mimeType: preferredType } : undefined)
       const chunks: BlobPart[] = []
       discardRecording = false
-      recordingStartedAt = Date.now()
+      recordingElapsedMs = 0
+      recordingResumedAt = Date.now()
       recordingSeconds.value = 0
+      recordingPaused.value = false
       recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
       recorder.onstop = () => {
         recordingStream?.getTracks().forEach(track => track.stop())
@@ -333,17 +367,19 @@
             recordedVoiceFile.value = new File([blob], `voice-message-${Date.now()}.${extension}`, { type: mimeType })
             if (recordedVoiceUrl.value) URL.revokeObjectURL(recordedVoiceUrl.value)
             recordedVoiceUrl.value = URL.createObjectURL(blob)
-            recordingSeconds.value = Math.ceil((Date.now() - recordingStartedAt) / 1000)
+            recordingSeconds.value = Math.ceil(recordingElapsedMs / 1000)
           }
         }
         recorder = null
         recordingVoice.value = false
+        recordingPaused.value = false
       }
       recorder.onerror = () => { actionNotice.value = 'Recording stopped because the microphone failed.' }
       recorder.start(250)
       recordingVoice.value = true
       recordingTimer = setInterval(() => {
-        recordingSeconds.value = Math.floor((Date.now() - recordingStartedAt) / 1000)
+        const elapsed = recordingElapsedMs + (recordingPaused.value ? 0 : Date.now() - recordingResumedAt)
+        recordingSeconds.value = Math.floor(elapsed / 1000)
         if (recordingSeconds.value >= 300) stopVoiceRecording(false)
       }, 250)
       actionNotice.value = ''
@@ -356,6 +392,8 @@
 
   function stopVoiceRecording (cancel: boolean) {
     discardRecording = cancel
+    if (recorder && recorder.state === 'recording') recordingElapsedMs += Date.now() - recordingResumedAt
+    recordingSeconds.value = Math.ceil(recordingElapsedMs / 1000)
     if (recordingTimer) clearInterval(recordingTimer)
     recordingTimer = undefined
     if (recorder && recorder.state !== 'inactive') recorder.stop()
@@ -363,12 +401,82 @@
       recordingStream?.getTracks().forEach(track => track.stop())
       recordingStream = null
       recordingVoice.value = false
+      recordingPaused.value = false
     }
     if (cancel) {
       recordedVoiceFile.value = null
       if (recordedVoiceUrl.value) URL.revokeObjectURL(recordedVoiceUrl.value)
       recordedVoiceUrl.value = ''
     }
+  }
+
+  function toggleVoiceRecordingPause () {
+    if (!recorder || typeof recorder.pause !== 'function' || typeof recorder.resume !== 'function') {
+      actionNotice.value = 'Pause and resume are not supported by this browser.'
+      return
+    }
+    if (recorder.state === 'recording') {
+      recordingElapsedMs += Date.now() - recordingResumedAt
+      recorder.pause()
+      recordingPaused.value = true
+    } else if (recorder.state === 'paused') {
+      recordingResumedAt = Date.now()
+      recorder.resume()
+      recordingPaused.value = false
+    }
+  }
+
+  function toggleDictation () {
+    if (recognition) {
+      recognition.stop()
+      return
+    }
+    const Recognition = (window as SpeechRecognitionWindow).SpeechRecognition
+      ?? (window as SpeechRecognitionWindow).webkitSpeechRecognition
+    if (!Recognition) {
+      actionNotice.value = 'Speech-to-text is not supported by this browser.'
+      return
+    }
+    try {
+      const activeRecognition = new Recognition()
+      recognition = activeRecognition
+      activeRecognition.continuous = true
+      activeRecognition.interimResults = false
+      activeRecognition.lang = navigator.language || 'en'
+      activeRecognition.onresult = event => {
+        const transcript = Array.from(event.results).slice(event.resultIndex)
+          .filter(result => result.isFinal)
+          .map(result => result[0]?.transcript.trim())
+          .filter(Boolean)
+          .join(' ')
+        if (transcript) draft.value = `${draft.value}${draft.value.trim() ? ' ' : ''}${transcript}`
+      }
+      activeRecognition.onerror = event => {
+        actionNotice.value = event.error === 'not-allowed' || event.error === 'service-not-allowed'
+          ? 'Microphone permission for speech-to-text was denied.'
+          : `Speech-to-text stopped: ${event.error}.`
+        recognition = null
+        dictating.value = false
+      }
+      activeRecognition.onend = () => {
+        if (recognition === activeRecognition) recognition = null
+        dictating.value = false
+      }
+      activeRecognition.start()
+      dictating.value = true
+      actionNotice.value = 'Dictation is active. Review the text before sending.'
+    } catch (reason) {
+      recognition = null
+      dictating.value = false
+      actionNotice.value = reason instanceof Error ? `Could not start speech-to-text: ${reason.message}` : 'Could not start speech-to-text.'
+    }
+  }
+
+  function cancelDictation () {
+    recognition?.abort()
+    recognition = null
+    dictating.value = false
+    actionNotice.value = 'Dictation stopped. Any recognized text remains editable.'
   }
 
   async function loadAttachment (attachment: { id: string, storagePath: string }) {
@@ -630,8 +738,10 @@
           <span><strong>{{ displayEmployee?.firstName }} {{ displayEmployee?.lastName }}</strong><small>{{ selectedConversation?.online ? 'Online' : selectedConversation?.lastSeenAt ? `Last seen ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(selectedConversation.lastSeenAt))}` : selectedConversation?.title || composingEmployee?.title || 'New message' }}</small></span>
           <button v-if="selectedConversation" class="chat-tool-button" type="button" :aria-label="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" :title="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" @click="workspace.setConversationState(selectedConversation.id, selectedConversation.archived ? 'restore' : 'archive')"><v-icon :icon="selectedConversation.archived ? 'mdi-inbox-arrow-down-outline' : 'mdi-archive-outline'" size="19" /></button>
           <button v-if="selectedConversation" class="chat-tool-button" type="button" aria-label="Mark conversation unread" title="Mark unread" @click="markCurrentConversationUnread"><v-icon icon="mdi-email-mark-as-unread" size="19" /></button>
-          <button v-if="selectedConversation" class="chat-tool-button" type="button" aria-label="Start voice call" title="Start voice call" :disabled="Boolean(calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('audio')"><v-icon icon="mdi-phone-outline" size="19" /></button>
-          <button v-if="selectedConversation" class="chat-tool-button" type="button" aria-label="Start video call" title="Start video call" :disabled="Boolean(calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('video')"><v-icon icon="mdi-video-outline" size="19" /></button>
+          <div v-if="selectedConversation" class="chat-call-actions" role="group" aria-label="Call this employee">
+            <button class="chat-tool-button" type="button" aria-label="Start voice call" :title="calls.signalingReady ? 'Start voice call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('audio')"><v-icon icon="mdi-phone-outline" size="19" /></button>
+            <button class="chat-tool-button" type="button" aria-label="Start video call" :title="calls.signalingReady ? 'Start video call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('video')"><v-icon icon="mdi-video-outline" size="19" /></button>
+          </div>
           <button class="chat-tool-button" type="button" :aria-expanded="messageSearchOpen" aria-label="Search in conversation" @click="messageSearchOpen = !messageSearchOpen; messageSearch = ''"><v-icon icon="mdi-magnify" size="19" /></button>
           <a v-if="displayEmployee?.email" class="chat-email" :href="`mailto:${displayEmployee.email}`" aria-label="Email colleague"><v-icon icon="mdi-email-outline" size="19" /></a>
         </header>
@@ -664,10 +774,16 @@
 
         <div ref="messageList" class="message-list" @scroll="trackMessageScroll">
           <div class="conversation-date">TODAY</div>
+          <p v-if="workspace.callHistoryError" class="call-history-error" role="status">{{ workspace.callHistoryError }}</p>
 
           <p v-if="composingEmployee && !selectedConversation" class="first-message-hint">This is a temporary message draft. A conversation is created only when your first message is sent.</p>
 
-          <article v-for="message in selectedConversation?.messages ?? []" :key="message.id" :data-message-id="message.id" :data-message-version="message.contentVersion" class="chat-message" :class="{ mine: message.mine, deleted: Boolean(message.deletedAt), selected: selectedMessageIds.includes(message.id), 'search-highlight': activeSearchMessageId === message.id, 'has-menu': openMenuMessageId === message.id }" @click="handleMessageClick(message.id)" @pointerdown="startMessagePress(message.id, $event)" @pointermove="moveMessagePress" @pointerup="cancelMessagePress" @pointercancel="cancelMessagePress">
+          <template v-for="message in selectedConversation?.messages ?? []" :key="message.id">
+          <article v-if="message.callEvent" class="call-history-card" :class="{ mine: message.mine }" aria-label="Call history">
+            <v-icon :icon="message.callEvent.callType === 'video' ? 'mdi-video-outline' : 'mdi-phone-outline'" size="18" />
+            <div><strong>{{ message.text }}</strong><small v-if="message.callEvent.durationSeconds !== null" class="call-duration">{{ formatCallDuration(message.callEvent.durationSeconds) }}</small><time>{{ message.sentAt }}</time></div>
+          </article>
+          <article v-else :data-message-id="message.id" :data-message-version="message.contentVersion" class="chat-message" :class="{ mine: message.mine, deleted: Boolean(message.deletedAt), selected: selectedMessageIds.includes(message.id), 'search-highlight': activeSearchMessageId === message.id, 'has-menu': openMenuMessageId === message.id }" @click="handleMessageClick(message.id)" @pointerdown="startMessagePress(message.id, $event)" @pointermove="moveMessagePress" @pointerup="cancelMessagePress" @pointercancel="cancelMessagePress">
             <small v-if="!message.mine">{{ message.author }}</small>
             <button v-if="message.replyTo" class="reply-preview" type="button" @click.stop="jumpToReply(message.replyTo.id)"><strong>{{ message.replyTo.author }}</strong><span>{{ message.replyTo.text }}</span></button>
             <form v-if="editingMessageId === message.id" class="message-edit-form" @submit.prevent="saveEdit(message.id)">
@@ -705,6 +821,7 @@
               <button role="menuitem" type="button" @click="hideForMe(message.id); openMenuMessageId = ''"><v-icon icon="mdi-delete-outline" size="16" /> Delete for me</button>
             </div>
           </article>
+          </template>
         </div>
 
         <form class="composer" @submit.prevent="send">
@@ -712,10 +829,12 @@
           <div v-if="selectedAttachment" class="upload-selection"><span>{{ selectedAttachment.name }} · {{ formatBytes(selectedAttachment.size) }}</span><button v-if="!uploadingAttachment" type="button" aria-label="Remove selected attachment" @click="selectedAttachment = null"><v-icon icon="mdi-close" size="16" /></button></div>
           <div v-if="recordedVoiceUrl" class="voice-preview"><audio :src="recordedVoiceUrl" controls preload="metadata" aria-label="Voice recording preview" /><span>{{ formatDuration(recordingSeconds) }}</span><button type="button" aria-label="Discard voice recording" @click="stopVoiceRecording(true)"><v-icon icon="mdi-delete-outline" size="17" /></button></div>
           <div v-if="uploadingAttachment" class="upload-progress" role="progressbar" :aria-valuenow="uploadProgress" aria-valuemin="0" aria-valuemax="100" :aria-label="`Uploading attachment ${uploadProgress}%`"><span :style="{ width: `${uploadProgress}%` }" /><small>{{ uploadProgress }}% uploaded</small><button type="button" @click="cancelAttachmentUpload">Cancel upload</button></div>
-          <div v-if="recordingVoice" class="recording-state" role="status"><i /> Recording {{ formatDuration(recordingSeconds) }}<button type="button" @click="stopVoiceRecording(true)">Cancel</button><button type="button" @click="stopVoiceRecording(false)">Stop</button></div>
+          <div v-if="recordingVoice" class="recording-state" role="group" aria-label="Voice recording controls"><span class="recording-indicator" :class="{ paused: recordingPaused }" /><span>{{ recordingPaused ? 'Paused' : 'Recording' }} {{ formatDuration(recordingSeconds) }}</span><div class="recording-actions"><button type="button" :aria-label="recordingPaused ? 'Resume recording' : 'Pause recording'" :title="recordingPaused ? 'Resume recording' : 'Pause recording'" @click="toggleVoiceRecordingPause"><v-icon :icon="recordingPaused ? 'mdi-play' : 'mdi-pause'" size="17" /></button><button type="button" aria-label="Cancel recording" title="Cancel recording" @click="stopVoiceRecording(true)"><v-icon icon="mdi-delete-outline" size="17" /></button><button type="button" aria-label="Finish recording" title="Finish recording" @click="stopVoiceRecording(false)"><v-icon icon="mdi-check" size="17" /></button></div></div>
           <input ref="attachmentInput" class="attachment-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx" aria-label="Choose an attachment" @change="chooseAttachment">
           <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" aria-label="Attach image, video or document" title="Attach file" :disabled="uploadingAttachment" @click="attachmentInput?.click()"><v-icon icon="mdi-paperclip" size="19" /></button>
           <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" aria-label="Record voice message" title="Record voice message" :disabled="uploadingAttachment" @click="startVoiceRecording"><v-icon icon="mdi-microphone-outline" size="19" /></button>
+          <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" :class="{ 'dictation-active': dictating }" :aria-label="dictating ? 'Stop speech-to-text' : 'Dictate message text'" :title="dictating ? 'Stop dictation' : 'Dictate message text'" :disabled="uploadingAttachment" @click="toggleDictation"><v-icon :icon="dictating ? 'mdi-stop' : 'mdi-microphone-message'" size="19" /></button>
+          <button v-if="dictating" type="button" class="composer-tool" aria-label="Cancel speech-to-text" title="Cancel dictation" @click="cancelDictation"><v-icon icon="mdi-close" size="18" /></button>
           <input v-model="draft" aria-label="Write a message" autocomplete="off" placeholder="Write a message..." @input="handleComposerInput" @blur="selectedConversation && workspace.updateConversationTyping(selectedConversation.id, false)">
           <button v-if="recordedVoiceFile" type="button" aria-label="Send voice message" :disabled="uploadingAttachment" @click="uploadChatFile(recordedVoiceFile, recordingSeconds)"><v-icon icon="mdi-send" size="18" /></button>
           <button v-else-if="selectedAttachment" type="button" aria-label="Upload attachment" :disabled="uploadingAttachment" @click="uploadChatFile(selectedAttachment)"><v-icon icon="mdi-send" size="18" /></button>
@@ -761,6 +880,9 @@
 .chat-header { display: flex; min-height: 69px; align-items: center; gap: 11px; padding: 12px 18px; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
 .chat-tool-button, .message-search-panel > button, .selection-toolbar button { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 9px; background: var(--ns-surface, #fff); color: var(--ns-text-18352d, #18352d); cursor: pointer; }
 .chat-tool-button { margin-left: auto; }
+.chat-call-actions { display: flex; flex: 0 0 auto; gap: 6px; margin-left: auto; }
+.chat-call-actions .chat-tool-button { margin-left: 0; }
+.chat-call-actions .chat-tool-button:disabled { cursor: not-allowed; opacity: .48; }
 .chat-tool-button:focus-visible, .selection-toolbar button:focus-visible, .message-search-panel button:focus-visible, .message-context-menu button:focus-visible, .message-menu-trigger:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
 .conversation-back { display: inline-flex; min-height: 36px; align-items: center; gap: 5px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; padding: 0 9px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; font-size: 10px; }
 .conversation-back:hover { background: var(--ns-bg-f1f4eb, #f1f4eb); }
@@ -783,6 +905,12 @@
 .search-result span { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .action-notice { margin: 0; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); padding: 8px 13px; color: var(--ns-text-secondary); font-size: 10px; }
 .message-list { display: flex; flex: 1; flex-direction: column; gap: 15px; overflow-y: auto; padding: 22px; }
+.call-history-error { align-self: center; color: var(--ns-text-secondary); font-size: 10px; }
+.call-history-card { display: flex; max-width: min(84%, 360px); min-height: 54px; align-items: center; gap: 10px; align-self: center; border: 1px solid var(--ns-border-e3e9dc, #e3e9dc); border-radius: 12px; padding: 9px 13px; background: var(--ns-surface, #fff); color: var(--ns-text-secondary, #64756b); }
+.call-history-card div { display: grid; gap: 4px; }
+.call-history-card strong { color: var(--ns-text-primary, #18352d); font-size: 10px; font-weight: 600; }
+.call-history-card .call-duration { color: var(--ns-text-secondary, #64756b); font-size: 10px; line-height: 1.3; }
+.call-history-card time { color: var(--ns-text-a1aaa2, #a1aaa2); font-size: 8px; }
 .conversation-date { align-self: center; color: var(--ns-text-a1aaa2, #a1aaa2); font: 8px "DM Mono", monospace; letter-spacing: 1px; }
 .first-message-hint { align-self: center; max-width: 360px; color: var(--ns-text-secondary); font-size: 11px; line-height: 1.6; text-align: center; }
 .chat-message { position: relative; max-width: min(78%, 430px); align-self: flex-start; border-radius: 8px; touch-action: pan-y; }
@@ -829,11 +957,18 @@
 .attachment-input { display: none; }
 .composer-tool { display: grid; width: 36px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; background: var(--ns-surface, #fff); color: var(--ns-primary); cursor: pointer; }
 .composer-tool:disabled { cursor: wait; opacity: .5; }
+.composer-tool.dictation-active { border-color: var(--ns-blue-primary, #2563eb); background: var(--ns-blue-tint, #eff6ff); color: var(--ns-blue-primary, #2563eb); }
 .upload-selection, .voice-preview, .upload-progress, .recording-state { display: flex; width: 100%; min-width: 0; align-items: center; gap: 9px; border-radius: 7px; padding: 7px 9px; background: var(--ns-bg-f5f7f1, #f5f7f1); color: var(--ns-text-18352d, #18352d); font-size: 10px; }
 .upload-selection span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .upload-selection button, .voice-preview button, .recording-state button, .upload-progress button { border: 0; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; }
 .voice-preview audio { min-width: 0; flex: 1; height: 34px; }
 .voice-preview span { color: var(--ns-text-secondary); font-size: 9px; }
+.recording-state { min-height: 48px; flex-wrap: wrap; }
+.recording-indicator { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #dc2626; animation: recording-pulse 1s ease-in-out infinite alternate; }
+.recording-indicator.paused { background: #94a3b8; animation: none; }
+.recording-actions { display: flex; gap: 5px; margin-left: auto; }
+.recording-actions button { display: grid; width: 32px; height: 30px; place-items: center; border: 1px solid var(--ns-border); border-radius: 999px; background: var(--ns-surface); }
+@keyframes recording-pulse { to { opacity: .35; } }
 .upload-progress { position: relative; overflow: hidden; min-height: 32px; }
 .upload-progress > span { position: absolute; inset: 0 auto 0 0; z-index: 0; background: color-mix(in srgb, var(--ns-blue-primary, #2563eb) 14%, transparent); transition: width .15s linear; }
 .upload-progress small, .upload-progress button { position: relative; z-index: 1; }

@@ -50,6 +50,7 @@ export type ChatMessage = {
   replyTo: { id: string, author: string, text: string } | null
   reactions: { emoji: string, count: number, reactedByMe: boolean }[]
   attachments: MessageAttachment[]
+  callEvent?: { callType: 'audio' | 'video', status: string, expiresAt: string, durationSeconds: number | null }
 }
 
 export type MessageAttachment = {
@@ -138,7 +139,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let typingRefreshTimer: ReturnType<typeof setInterval> | undefined
   const lastTypingSentAt = new Map<string, number>()
   const pendingMessageRequests = new Map<string, string>()
+  const callHistoryError = ref('')
   const unreadNotifications = computed(() => notificationList.value.filter(item => item.unread).length)
+
+  function logSupabaseDiagnostic (label: string, error: unknown) {
+    if (!import.meta.env.DEV) return
+    const detail = error && typeof error === 'object'
+      ? error as { code?: unknown, message?: unknown, details?: unknown, hint?: unknown, status?: unknown }
+      : null
+    console.error(`[Northstar ${label}]`, {
+      code: detail?.code,
+      message: detail?.message ?? (error instanceof Error ? error.message : String(error)),
+      details: detail?.details,
+      hint: detail?.hint,
+      status: detail?.status,
+    })
+  }
   const departments = computed(() => {
     return departmentList.value.map(department => ({
       name: department.name,
@@ -425,7 +441,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           void refreshConversations()
           return
         }
-        if (conversation.messages.some(item => item.id === message.id)) {
+        if (conversation.messages.some(item => !item.callEvent && item.id === message.id)) {
           return
         }
         const sender = employeeList.value.find(item => item.id === message.sender_id)
@@ -459,6 +475,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, () => {
         void refreshConversations()
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'northstar_call_sessions' }, () => {
+        void refreshConversations()
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'message_recipient_receipts' }, () => {
         void refreshMessageReceipts()
       })
@@ -480,7 +499,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'northstar_conversation_typing' }, () => {
         void refreshConversationTyping()
       })
-      .subscribe(status => {
+      .subscribe((status, subscriptionError) => {
         if (status === 'SUBSCRIBED') {
           messageSyncError.value = ''
           void refreshConversations()
@@ -488,7 +507,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           messageSyncError.value = `Message updates are temporarily unavailable (${status}). Use Refresh messages to check for new activity.`
           backendError.value = `Supabase Realtime subscription failed: ${status}`
-          console.error(backendError.value)
+          logSupabaseDiagnostic('message Realtime subscription', subscriptionError ?? new Error(status))
         }
       })
 
@@ -530,12 +549,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           messageToastTimer = setTimeout(() => { messageToast.value = null }, 7000)
         }
       })
-      .subscribe(status => {
+      .subscribe((status, subscriptionError) => {
         if (status === 'SUBSCRIBED') {
           void refreshConversations()
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           backendError.value = `Supabase notification subscription failed: ${status}`
-          console.error(backendError.value)
+          logSupabaseDiagnostic('notification Realtime subscription', subscriptionError ?? new Error(status))
         }
       })
   }
@@ -599,6 +618,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       conversations.value = []
       interactionError.value = ''
       conversationStateError.value = ''
+      callHistoryError.value = ''
       return ''
     }
     const [stateResult, pinsResult] = await Promise.all([
@@ -615,12 +635,65 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       current.push(pin.message_id)
       pinsByConversation.set(pin.conversation_id, current)
     }
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at,edited_at,deleted_at,content_version)')
-      .in('id', ids)
-      .order('updated_at', { ascending: false })
+    const [conversationResult, callHistoryResult] = await Promise.all([
+      supabase
+        .from('conversations')
+        .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at,edited_at,deleted_at,content_version)')
+        .in('id', ids)
+        .order('updated_at', { ascending: false }),
+      supabase.from('northstar_call_sessions')
+        .select('id,conversation_id,caller_id,callee_id,call_type,status,expires_at,created_at,accepted_at,ended_at')
+        .in('conversation_id', ids)
+        .order('created_at', { ascending: true }),
+    ])
+    const { data, error } = conversationResult
+    callHistoryError.value = callHistoryResult.error
+      ? `Call history is temporarily unavailable: ${callHistoryResult.error.message}`
+      : ''
+    if (callHistoryResult.error) logSupabaseDiagnostic('call history query', callHistoryResult.error)
     if (error) return error.message
+
+    const callHistoryByConversation = new Map<string, ChatMessage[]>()
+    for (const call of callHistoryResult.data ?? []) {
+      if (!isUuid(call.id) || !isUuid(call.conversation_id) || !isUuid(call.caller_id) || !isUuid(call.callee_id)) continue
+      if (!['audio', 'video'].includes(call.call_type) || typeof call.status !== 'string' || !call.created_at) continue
+      const outgoing = call.caller_id === auth.userId
+      const status = String(call.status)
+      const statusLabel = status === 'ringing' && Date.parse(call.expires_at) <= Date.now() ? 'Invitation expired' : ({
+        ringing: 'No answer yet', accepted: 'In progress', declined: 'Declined', cancelled: 'Cancelled',
+        missed: 'Missed', ended: 'Completed', failed: 'Failed',
+      } as Record<string, string>)[status] ?? 'Call update'
+      const callType = call.call_type as 'audio' | 'video'
+      const acceptedAt = typeof call.accepted_at === 'string' ? Date.parse(call.accepted_at) : Number.NaN
+      const endedAt = typeof call.ended_at === 'string' ? Date.parse(call.ended_at) : Number.NaN
+      const durationSeconds = status === 'ended'
+        && Number.isFinite(acceptedAt)
+        && Number.isFinite(endedAt)
+        && endedAt >= acceptedAt
+        ? Math.floor((endedAt - acceptedAt) / 1000)
+        : null
+      const entry: ChatMessage = {
+        id: `call:${call.id}`,
+        author: outgoing ? 'You' : 'Colleague',
+        text: `${outgoing ? 'Outgoing' : 'Incoming'} ${callType} call · ${statusLabel}`,
+        sentAt: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(call.created_at)),
+        createdAt: call.created_at,
+        mine: outgoing,
+        editedAt: null,
+        deletedAt: null,
+        contentVersion: 1,
+        deliveryCount: 0,
+        readCount: 0,
+        recipientCount: 0,
+        replyTo: null,
+        reactions: [],
+        attachments: [],
+        callEvent: { callType, status, expiresAt: call.expires_at, durationSeconds },
+      }
+      const entries = callHistoryByConversation.get(call.conversation_id) ?? []
+      entries.push(entry)
+      callHistoryByConversation.set(call.conversation_id, entries)
+    }
 
     conversations.value = (data ?? []).map(row => {
       const members = Array.isArray(row.conversation_members) ? row.conversation_members : []
@@ -647,7 +720,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         pinnedMessageIds: pinsByConversation.get(row.id) ?? [],
         typingUserIds: [],
         updatedAt: row.updated_at ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(row.updated_at)) : '',
-        messages: messages.map((message: { id: string, sender_id: string, content: string, created_at: string, edited_at?: string | null, deleted_at?: string | null, content_version?: number }) => ({
+        messages: [
+          ...messages.map((message: { id: string, sender_id: string, content: string, created_at: string, edited_at?: string | null, deleted_at?: string | null, content_version?: number }) => ({
           id: message.id,
           author: message.sender_id === auth.userId ? 'You' : `${firstName} ${lastName}`.trim(),
           text: message.deleted_at ? 'This message was deleted' : message.content,
@@ -663,12 +737,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           replyTo: null,
           reactions: [],
           attachments: [],
-        })),
+          })),
+          ...(callHistoryByConversation.get(row.id) ?? []),
+        ].sort(compareChatMessages),
       }
     }).filter(item => item.messages.length > 0)
     conversations.value.sort((a, b) => compareChatMessages(b.messages.at(-1) ?? { id: '', createdAt: '' }, a.messages.at(-1) ?? { id: '', createdAt: '' }))
     applyConversationPresence()
-    const incomingMessages = conversations.value.flatMap(conversation => conversation.messages.filter(message => !message.mine && !message.deletedAt))
+    const incomingMessages = conversations.value.flatMap(conversation => conversation.messages.filter(message => !message.callEvent && !message.mine && !message.deletedAt))
     if (incomingMessages.length > 0) void acknowledgeMessageDelivery(incomingMessages.map(message => ({ id: message.id, version: message.contentVersion })))
     void refreshMessageReceipts()
     void refreshMessageInteractions()
@@ -693,15 +769,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       presenceError.value = ''
       return true
     }
-    const { data, error } = await supabase.rpc('northstar_list_employee_presence', { p_user_ids: ids })
+    let data: unknown
+    let error: unknown
+    try {
+      const result = await supabase.rpc('northstar_list_employee_presence', { p_user_ids: ids })
+      data = result.data
+      error = result.error
+    } catch (reason) {
+      error = reason
+    }
     if (error) {
-      console.warn('Employee presence is temporarily unavailable.', error.message)
+      const message = error instanceof Error ? error.message : (error as { message?: string }).message ?? 'The request failed.'
+      logSupabaseDiagnostic('employee presence query', error)
       for (const employee of employeeList.value) {
         employee.online = null
         employee.lastSeenAt = null
       }
       applyConversationPresence()
-      presenceError.value = `Could not refresh employee presence: ${error.message}`
+      presenceError.value = `Could not refresh employee presence: ${message}`
       return false
     }
     const rows = (Array.isArray(data) ? data : []) as { user_id: string, last_seen_at: string | null, is_online: boolean }[]
@@ -720,14 +805,19 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!supabase || !isSupabaseConfigured || document.visibilityState !== 'visible') {
       return
     }
-    const { error } = await supabase.rpc('northstar_presence_heartbeat')
-    if (error) {
-      console.warn('Presence heartbeat could not be recorded.', error.message)
+    let error: unknown
+    try {
+      const result = await supabase.rpc('northstar_presence_heartbeat')
+      error = result.error
+    } catch (reason) {
+      error = reason
     }
+    if (error) logSupabaseDiagnostic('presence heartbeat', error)
     const refreshed = await refreshPresence()
     if (error) {
       const refreshFailure = refreshed ? '' : ` ${presenceError.value}`
-      presenceError.value = `Presence heartbeat failed: ${error.message}.${refreshFailure}`
+      const message = error instanceof Error ? error.message : (error as { message?: string }).message ?? 'The request failed.'
+      presenceError.value = `Presence heartbeat failed: ${message}.${refreshFailure}`
     }
   }
 
@@ -924,7 +1014,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!supabase || !isSupabaseConfigured || !isUuid(useAuthStore().userId)) {
       return
     }
-    const ownMessageIds = conversations.value.flatMap(conversation => conversation.messages.filter(message => message.mine && !message.deletedAt).map(message => message.id))
+    const ownMessageIds = conversations.value.flatMap(conversation => conversation.messages.filter(message => !message.callEvent && message.mine && !message.deletedAt).map(message => message.id))
     if (ownMessageIds.length === 0) {
       for (const conversation of conversations.value) {
         for (const message of conversation.messages) {
@@ -960,7 +1050,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function refreshMessageInteractions () {
     if (!supabase || !isSupabaseConfigured) return
-    const messages = conversations.value.flatMap(conversation => conversation.messages)
+    const messages = conversations.value.flatMap(conversation => conversation.messages.filter(message => !message.callEvent))
     const ids = messages.map(message => message.id).filter(isUuid)
     if (!ids.length) {
       interactionError.value = ''
@@ -1482,6 +1572,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     backendError,
     messageSyncError,
     receiptError,
+    callHistoryError,
     presenceError,
     interactionError,
     conversationStateError,

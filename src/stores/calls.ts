@@ -4,7 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
 type CallKind = 'audio' | 'video'
-type CallStatus = 'starting' | 'ringing' | 'connecting' | 'connected'
+type CallStatus = 'starting' | 'ringing' | 'connecting' | 'connected' | 'disconnected'
 type CallRow = {
   id: string
   conversation_id: string
@@ -47,16 +47,25 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   const remoteStream = ref<MediaStream | null>(null)
   const muted = ref(false)
   const cameraEnabled = ref(true)
+  const screenSharing = ref(false)
   const error = ref('')
   const notice = ref('')
   const isInCall = computed(() => Boolean(activeCall.value))
   const callStartInFlight = ref(false)
+  const incomingActionInFlight = ref(false)
+  const signalingReady = ref(false)
+  const minimized = ref(false)
+  const connectedDurationSeconds = ref(0)
   let channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   let peer: RTCPeerConnection | null = null
+  let screenStream: MediaStream | null = null
+  let screenVideoSender: RTCRtpSender | null = null
   let ringTimer: ReturnType<typeof setTimeout> | undefined
   let incomingTimer: ReturnType<typeof setTimeout> | undefined
   let leaseTimer: ReturnType<typeof setInterval> | undefined
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let durationTimer: ReturnType<typeof setInterval> | undefined
+  let connectedAt: number | null = null
   let signalQueue = Promise.resolve()
   let heartbeatInFlight = false
   let hasSubscribed = false
@@ -67,10 +76,16 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   const handledSignalIds = new Set<string>()
   let queuedIce: RTCIceCandidateInit[] = []
 
+  function clearSubscriptionError () {
+    if (error.value.startsWith('Secure call signaling could not establish its Realtime subscription')) error.value = ''
+  }
+
   function startListening () {
     const auth = useAuthStore()
     if (!supabase || !isSupabaseConfigured || !isUuid(auth.userId) || channel) return
-    channel = supabase.channel(`northstar-call-signals-${auth.userId}`)
+    channel = supabase.channel(`northstar-call-signals-${auth.userId}`, {
+      config: { postgres_changes_options: { wait: true } },
+    })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'northstar_call_sessions' }, payload => {
         handleSessionChange((payload.new ?? payload.old) as CallRow | undefined)
       })
@@ -79,24 +94,39 @@ export const useCallsStore = defineStore('northstar-calls', () => {
         if (signal.recipient_id !== auth.userId || !isUuid(signal.call_id)) return
         queueSignal(signal)
       })
-      .subscribe(status => {
+      .subscribe((status, subscriptionError) => {
         if (!channel) return
         if (status === 'SUBSCRIBED') {
+          signalingReady.value = true
           const reconnect = hasSubscribed || subscriptionInterrupted
           hasSubscribed = true
           subscriptionInterrupted = false
           if (reconnect) void recoverCallState()
           else {
             realtimeUnavailable = false
-            if (error.value.startsWith('Secure call signaling is unavailable')) error.value = ''
+            clearSubscriptionError()
             void loadPendingInvitation()
           }
         }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          if (import.meta.env.DEV) {
+            const detail = subscriptionError && typeof subscriptionError === 'object'
+              ? subscriptionError as { message?: unknown, code?: unknown, details?: unknown, hint?: unknown }
+              : null
+            console.error('[Northstar calls] Realtime subscription failed', {
+              status,
+              message: detail?.message ?? (subscriptionError instanceof Error ? subscriptionError.message : undefined),
+              code: detail?.code,
+              details: detail?.details,
+              hint: detail?.hint,
+            })
+          }
+          signalingReady.value = false
           subscriptionInterrupted = true
           realtimeUnavailable = true
-          error.value = `Secure call signaling is unavailable (${status}). Check that the call SQL is applied and Realtime is authorized.`
+          error.value = `Supabase Realtime reported ${status} for call signaling. Check browser network access and the deployed Realtime configuration.`
         } else if (status === 'CLOSED' && channel) {
+          signalingReady.value = false
           subscriptionInterrupted = true
         }
       })
@@ -121,7 +151,9 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     }
     if (activeCall.value?.id !== row.id) return
     if (row.status === 'accepted') {
-      activeCall.value.status = 'connecting'
+      if (activeCall.value.status !== 'connected' && activeCall.value.status !== 'disconnected') {
+        activeCall.value.status = 'connecting'
+      }
       clearRingTimer()
       startLeaseHeartbeat()
     } else if (['declined', 'cancelled', 'missed', 'ended', 'failed'].includes(row.status)) {
@@ -175,6 +207,10 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     }
     if (!supabase || !isSupabaseConfigured || !isUuid(conversationId)) {
       error.value = 'Secure call signaling is not configured.'
+      return false
+    }
+    if (!signalingReady.value) {
+      error.value = 'Call signaling is not connected yet. Wait for the secure connection and try again.'
       return false
     }
     error.value = ''
@@ -246,64 +282,83 @@ export const useCallsStore = defineStore('northstar-calls', () => {
 
   async function acceptIncomingCall () {
     const row = incomingCall.value
-    if (!row || activeCall.value || !supabase) return false
+    if (!row || activeCall.value || !supabase || incomingActionInFlight.value) return false
+    if (!signalingReady.value) {
+      error.value = 'Call signaling is temporarily unavailable. You can try accepting again when it reconnects.'
+      return false
+    }
     error.value = ''
-    let configuration: RTCConfiguration
+    incomingActionInFlight.value = true
     try {
-      configuration = await getRtcConfiguration()
-      localStream.value = await navigator.mediaDevices.getUserMedia({ audio: true, video: row.call_type === 'video' })
-    } catch (reason) {
-      releaseMedia()
-      error.value = reason instanceof Error ? reason.message : 'Could not access the microphone or camera.'
-      return false
-    }
+      let configuration: RTCConfiguration
+      try {
+        configuration = await getRtcConfiguration()
+        localStream.value = await navigator.mediaDevices.getUserMedia({ audio: true, video: row.call_type === 'video' })
+      } catch (reason) {
+        releaseMedia()
+        error.value = reason instanceof Error ? reason.message : 'Could not access the microphone or camera.'
+        return false
+      }
 
-    activeCall.value = { ...row, status: 'starting' }
-    incomingCall.value = null
-    const accepted = await changeCallStatus(row.id, 'accept')
-    if (!accepted) {
-      releaseCallResources()
-      return false
-    }
-    if (activeCall.value?.id !== row.id) {
-      error.value = 'The call ended before the connection could be prepared.'
-      releaseCallResources()
-      return false
-    }
-    activeCall.value.status = 'connecting'
-    clearIncomingTimer()
-    try {
-      await createPeerConnection(configuration)
-      startLeaseHeartbeat()
-      const { data, error: readError } = await supabase.from('northstar_call_signals')
-        .select('id,call_id,sender_id,recipient_id,signal_type,payload')
-        .eq('call_id', row.id)
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-      if (readError) throw new Error(`Could not load private call signaling: ${readError.message}`)
-      if (!await confirmCallStillActive(row.id, 'accepted')) {
+      activeCall.value = { ...row, status: 'starting' }
+      incomingCall.value = null
+      clearIncomingTimer()
+      const accepted = await changeCallStatus(row.id, 'accept')
+      if (!accepted) {
+        const canRetry = activeCall.value?.id === row.id && row.status === 'ringing'
+        releaseCallResources()
+        if (canRetry && Date.parse(row.expires_at) > Date.now()) {
+          incomingCall.value = row
+          startIncomingExpiry(row)
+        }
+        return false
+      }
+      if (activeCall.value?.id !== row.id) {
+        error.value = 'The call ended before the connection could be prepared.'
         releaseCallResources()
         return false
       }
-      for (const signal of (data ?? []) as CallSignal[]) queueSignal(signal)
-      return true
-    } catch (reason) {
-      await changeCallStatus(row.id, 'failed')
-      releaseCallResources()
-      error.value = reason instanceof Error ? reason.message : 'The call could not be accepted.'
-      return false
+      activeCall.value.status = 'connecting'
+      try {
+        await createPeerConnection(configuration)
+        startLeaseHeartbeat()
+        const { data, error: readError } = await supabase.from('northstar_call_signals')
+          .select('id,call_id,sender_id,recipient_id,signal_type,payload')
+          .eq('call_id', row.id)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+        if (readError) throw new Error(`Could not load private call signaling: ${readError.message}`)
+        if (!await confirmCallStillActive(row.id, 'accepted')) {
+          releaseCallResources()
+          return false
+        }
+        for (const signal of (data ?? []) as CallSignal[]) queueSignal(signal)
+        return true
+      } catch (reason) {
+        await changeCallStatus(row.id, 'failed')
+        releaseCallResources()
+        error.value = reason instanceof Error ? reason.message : 'The call could not be accepted.'
+        return false
+      }
+    } finally {
+      incomingActionInFlight.value = false
     }
   }
 
   async function declineIncomingCall () {
     const row = incomingCall.value
-    if (!row) return false
-    const success = await changeCallStatus(row.id, 'decline')
-    if (success) {
-      clearIncomingTimer()
-      incomingCall.value = null
+    if (!row || incomingActionInFlight.value) return false
+    incomingActionInFlight.value = true
+    try {
+      const success = await changeCallStatus(row.id, 'decline')
+      if (success) {
+        clearIncomingTimer()
+        incomingCall.value = null
+      }
+      return success
+    } finally {
+      incomingActionInFlight.value = false
     }
-    return success
   }
 
   async function endCall () {
@@ -326,9 +381,83 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   async function toggleCamera () {
     const tracks = localStream.value?.getVideoTracks() ?? []
     if (!tracks.length) return false
+    if (cameraEnabled.value && screenSharing.value) await stopScreenSharing()
     cameraEnabled.value = !cameraEnabled.value
     tracks.forEach(track => { track.enabled = cameraEnabled.value })
     return true
+  }
+
+  async function toggleScreenSharing () {
+    if (screenSharing.value) {
+      await stopScreenSharing()
+      return true
+    }
+    const call = activeCall.value
+    const cameraTrack = localStream.value?.getVideoTracks().find(track => track.readyState === 'live')
+    if (!navigator.mediaDevices?.getDisplayMedia || !call || call.call_type !== 'video'
+        || call.status !== 'connected' || !cameraEnabled.value || !cameraTrack?.enabled || !peer) {
+      error.value = 'Screen sharing requires a connected video call with your camera enabled.'
+      return false
+    }
+    const sender = peer.getSenders().find(candidate => candidate.track?.kind === 'video')
+    if (!sender) {
+      error.value = 'Screen sharing is unavailable because this call has no active video sender.'
+      return false
+    }
+    const currentPeer = peer
+    let displayStream: MediaStream | null = null
+    try {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      const displayTrack = displayStream.getVideoTracks()[0]
+      if (!displayTrack || activeCall.value?.id !== call.id || peer?.connectionState !== 'connected'
+          || !cameraTrack.enabled || cameraTrack.readyState !== 'live') {
+        displayStream.getTracks().forEach(track => track.stop())
+        error.value = 'The call changed before screen sharing could start.'
+        return false
+      }
+      await sender.replaceTrack(displayTrack)
+      if (activeCall.value?.id !== call.id || peer !== currentPeer || currentPeer.connectionState !== 'connected') {
+        try {
+          if (peer === currentPeer) await sender.replaceTrack(cameraTrack)
+        } catch {
+          // The peer connection may already be closed by the terminal call cleanup.
+        }
+        displayStream.getTracks().forEach(track => track.stop())
+        error.value = 'The call ended before screen sharing could start.'
+        return false
+      }
+      screenStream = displayStream
+      screenVideoSender = sender
+      screenSharing.value = true
+      error.value = ''
+      displayTrack.onended = () => { void stopScreenSharing() }
+      return true
+    } catch (reason) {
+      displayStream?.getTracks().forEach(track => track.stop())
+      error.value = reason instanceof Error
+        ? `Could not start screen sharing: ${reason.message}`
+        : 'Could not start screen sharing. Check browser permission and try again.'
+      return false
+    }
+  }
+
+  async function stopScreenSharing () {
+    const stream = screenStream
+    const sender = screenVideoSender
+    const cameraTrack = localStream.value?.getVideoTracks().find(track => track.readyState === 'live')
+    const displayTrack = stream?.getVideoTracks()[0]
+    if (displayTrack) displayTrack.onended = null
+    screenStream = null
+    screenVideoSender = null
+    screenSharing.value = false
+    try {
+      if (sender && peer && cameraTrack && activeCall.value) await sender.replaceTrack(cameraTrack)
+      else if (sender && peer && activeCall.value) await sender.replaceTrack(null)
+    } catch {
+      if (activeCall.value) error.value = 'Screen sharing stopped, but the camera track could not be restored. End and restart the video call.'
+    } finally {
+      stream?.getTracks().forEach(track => track.stop())
+    }
   }
 
   async function createPeerConnection (configuration: RTCConfiguration) {
@@ -350,11 +479,13 @@ export const useCallsStore = defineStore('northstar-calls', () => {
       if (!peer || !activeCall.value) return
       if (peer.connectionState === 'connected') {
         activeCall.value.status = 'connected'
+        beginConnectedDuration()
         if (disconnectTimer) clearTimeout(disconnectTimer)
         disconnectTimer = undefined
       } else if (peer.connectionState === 'failed') {
         failCall(new Error('The WebRTC connection failed. Check network and TURN configuration.'))
       } else if (peer.connectionState === 'disconnected' && !disconnectTimer) {
+        activeCall.value.status = 'disconnected'
         disconnectTimer = setTimeout(() => {
           if (peer?.connectionState === 'disconnected') failCall(new Error('The call connection was lost.'))
         }, 10000)
@@ -512,8 +643,19 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     clearIncomingTimer()
     if (leaseTimer) clearInterval(leaseTimer)
     if (disconnectTimer) clearTimeout(disconnectTimer)
+    if (durationTimer) clearInterval(durationTimer)
     leaseTimer = undefined
     disconnectTimer = undefined
+    durationTimer = undefined
+    screenStream?.getTracks().forEach(track => {
+      track.onended = null
+      track.stop()
+    })
+    screenStream = null
+    screenVideoSender = null
+    screenSharing.value = false
+    connectedAt = null
+    connectedDurationSeconds.value = 0
     if (peer) {
       peer.onicecandidate = null
       peer.ontrack = null
@@ -526,6 +668,24 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     heartbeatInFlight = false
     releaseMedia()
     activeCall.value = null
+    minimized.value = false
+  }
+
+  function beginConnectedDuration () {
+    if (connectedAt !== null) return
+    connectedAt = Date.now()
+    connectedDurationSeconds.value = 0
+    durationTimer = setInterval(() => {
+      if (connectedAt !== null) connectedDurationSeconds.value = Math.floor((Date.now() - connectedAt) / 1000)
+    }, 1000)
+  }
+
+  function minimizeCall () {
+    if (activeCall.value) minimized.value = true
+  }
+
+  function restoreCall () {
+    minimized.value = false
   }
 
   async function stopListening () {
@@ -541,6 +701,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     incomingCall.value = null
     if (channel && supabase) await supabase.removeChannel(channel)
     channel = null
+    signalingReady.value = false
     hasSubscribed = false
     subscriptionInterrupted = false
   }
@@ -553,7 +714,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
         await loadPendingInvitation()
         if (realtimeUnavailable) {
           realtimeUnavailable = false
-          if (error.value.startsWith('Secure call signaling is unavailable')) error.value = ''
+          clearSubscriptionError()
         }
         return
       }
@@ -590,7 +751,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
       await recoverCallSignals(callId)
       if (realtimeUnavailable) {
         realtimeUnavailable = false
-        if (error.value.startsWith('Secure call signaling is unavailable')) error.value = ''
+        clearSubscriptionError()
       }
     } catch (reason) {
       error.value = reason instanceof Error ? `Could not restore the call after Realtime recovery: ${reason.message}`
@@ -681,9 +842,11 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   }
 
   return {
-    activeCall, incomingCall, localStream, remoteStream, muted, cameraEnabled, callStartInFlight,
+    activeCall, incomingCall, localStream, remoteStream, muted, cameraEnabled, screenSharing, callStartInFlight, incomingActionInFlight,
+    signalingReady, minimized, connectedDurationSeconds,
     error, notice, isInCall, startListening, stopListening, startCall,
-    acceptIncomingCall, declineIncomingCall, endCall, toggleMute, toggleCamera,
+    acceptIncomingCall, declineIncomingCall, endCall, toggleMute, toggleCamera, toggleScreenSharing,
+    minimizeCall, restoreCall,
   }
 })
 
