@@ -327,7 +327,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       } else {
         const { data: conversationRows, error: conversationError } = await supabase
           .from('conversations')
-          .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at)')
+          .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages!messages_conversation_id_fkey(id,sender_id,content,created_at)')
           .in('id', conversationIds)
           .order('updated_at', { ascending: false })
         if (conversationError) {

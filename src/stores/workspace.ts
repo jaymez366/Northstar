@@ -6,6 +6,12 @@ import { isSupabaseConfigured, supabase, uploadPrivateMessageObject } from '../.
 const isUuid = (value: string | null | undefined): value is string =>
   typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
+const normalizeUuid = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return isUuid(normalized) ? normalized : null
+}
+
 const pendingAttachmentRequests = new Map<string, { requestId: string, path: string }>()
 
 export type Employee = {
@@ -136,6 +142,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let conversationRefreshPromise: Promise<string> | null = null
   let presenceHeartbeatTimer: ReturnType<typeof setInterval> | undefined
   let presenceVisibilityHandler: (() => void) | undefined
+  let presenceHeartbeatInFlight = false
+  let presenceRequestGeneration = 0
+  let lastPresenceDiagnosticSignature = ''
   let typingRefreshTimer: ReturnType<typeof setInterval> | undefined
   const lastTypingSentAt = new Map<string, number>()
   const pendingMessageRequests = new Map<string, string>()
@@ -396,6 +405,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     const conversationRefreshError = await refreshConversations()
     if (conversationRefreshError) recordError('conversations', { message: conversationRefreshError })
+    else void refreshPresence()
 
     if (auth.isAdmin) {
       const { data: activityRows, error: activityError } = await supabase
@@ -638,7 +648,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const [conversationResult, callHistoryResult] = await Promise.all([
       supabase
         .from('conversations')
-        .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages(id,sender_id,content,created_at,edited_at,deleted_at,content_version)')
+        .select('id,updated_at,conversation_members(user_id,last_read_at,profile:profiles!conversation_members_user_id_fkey(first_name,last_name,job_title,avatar_url)),messages!messages_conversation_id_fkey(id,sender_id,content,created_at,edited_at,deleted_at,content_version)')
         .in('id', ids)
         .order('updated_at', { ascending: false }),
       supabase.from('northstar_call_sessions')
@@ -754,7 +764,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function applyConversationPresence () {
     for (const conversation of conversations.value) {
-      const peer = employeeList.value.find(employee => employee.id === conversation.employeeId)
+      const conversationEmployeeId = normalizeUuid(conversation.employeeId)
+      const peer = conversationEmployeeId
+        ? employeeList.value.find(employee => normalizeUuid(employee.id) === conversationEmployeeId)
+        : undefined
       conversation.online = peer?.online ?? null
       conversation.lastSeenAt = peer?.lastSeenAt ?? null
     }
@@ -764,8 +777,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!supabase || !isSupabaseConfigured) {
       return false
     }
-    const ids = employeeList.value.map(employee => employee.id).filter(isUuid)
+    // Restrict the request to the approved, active employee directory already
+    // loaded for this workspace. The RPC must still enforce access server-side;
+    // client-side scoping is only data minimization.
+    const ids = [...new Set(employeeList.value.map(employee => employee.id).filter(isUuid))]
+    const requestGeneration = ++presenceRequestGeneration
     if (ids.length === 0) {
+      for (const employee of employeeList.value) {
+        employee.online = null
+        employee.lastSeenAt = null
+      }
       presenceError.value = ''
       return true
     }
@@ -778,6 +799,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     } catch (reason) {
       error = reason
     }
+    if (requestGeneration !== presenceRequestGeneration) return false
     if (error) {
       const message = error instanceof Error ? error.message : (error as { message?: string }).message ?? 'The request failed.'
       logSupabaseDiagnostic('employee presence query', error)
@@ -789,35 +811,88 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       presenceError.value = `Could not refresh employee presence: ${message}`
       return false
     }
-    const rows = (Array.isArray(data) ? data : []) as { user_id: string, last_seen_at: string | null, is_online: boolean }[]
-    const presenceByUser = new Map(rows.map(row => [row.user_id, row]))
+    const rows: unknown[] = Array.isArray(data)
+      ? data
+      : data && typeof data === 'object'
+        ? [data]
+        : []
+    const requestedIds = new Set(ids.map(normalizeUuid).filter((id): id is string => id !== null))
+    const presenceByUser = new Map<string, { last_seen_at: string | null, is_online: boolean }>()
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') continue
+      const presence = row as { user_id?: unknown, last_seen_at?: unknown, is_online?: unknown }
+      const userId = normalizeUuid(presence.user_id)
+      if (!userId || !requestedIds.has(userId) || typeof presence.is_online !== 'boolean') continue
+      const lastSeenAt = typeof presence.last_seen_at === 'string' && Number.isFinite(Date.parse(presence.last_seen_at))
+        ? presence.last_seen_at
+        : null
+      const previous = presenceByUser.get(userId)
+      const previousTimestamp = previous?.last_seen_at ? Date.parse(previous.last_seen_at) : Number.NEGATIVE_INFINITY
+      const currentTimestamp = lastSeenAt ? Date.parse(lastSeenAt) : Number.NEGATIVE_INFINITY
+      presenceByUser.set(userId, {
+        is_online: presence.is_online || previous?.is_online === true,
+        last_seen_at: currentTimestamp >= previousTimestamp ? lastSeenAt : previous?.last_seen_at ?? null,
+      })
+    }
     for (const employee of employeeList.value) {
-      const presence = presenceByUser.get(employee.id)
-      employee.online = presence?.is_online === true
-      employee.lastSeenAt = presence?.last_seen_at ?? null
+      const employeeId = normalizeUuid(employee.id)
+      const presence = employeeId ? presenceByUser.get(employeeId) : undefined
+      employee.online = typeof presence?.is_online === 'boolean' ? presence.is_online : null
+      employee.lastSeenAt = typeof presence?.last_seen_at === 'string' && Number.isFinite(Date.parse(presence.last_seen_at))
+        ? presence.last_seen_at
+        : null
     }
     applyConversationPresence()
+    if (import.meta.env.DEV) {
+      const unavailableConversationIds = [...new Set(conversations.value
+        .filter(conversation => conversation.online === null)
+        .map(conversation => normalizeUuid(conversation.employeeId) ?? conversation.employeeId))]
+      if (unavailableConversationIds.length > 0) {
+        const diagnostic = {
+          responseShape: Array.isArray(data) ? 'array' : data && typeof data === 'object' ? 'object' : typeof data,
+          requestedUserIds: [...requestedIds],
+          responseUserIds: rows.map(row => row && typeof row === 'object'
+            ? normalizeUuid((row as { user_id?: unknown }).user_id)
+            : null).filter((id): id is string => id !== null),
+          unavailableConversationUserIds: unavailableConversationIds,
+          matchingDirectoryUserIds: unavailableConversationIds.map(id => {
+            const employee = employeeList.value.find(item => normalizeUuid(item.id) === normalizeUuid(id))
+            return employee ? normalizeUuid(employee.id) : null
+          }),
+        }
+        const signature = JSON.stringify(diagnostic)
+        if (signature !== lastPresenceDiagnosticSignature) {
+          console.debug('[NorthStar presence mapping]', diagnostic)
+          lastPresenceDiagnosticSignature = signature
+        }
+      }
+    }
     presenceError.value = ''
     return true
   }
 
   async function sendPresenceHeartbeat () {
-    if (!supabase || !isSupabaseConfigured || document.visibilityState !== 'visible') {
+    if (!supabase || !isSupabaseConfigured || document.visibilityState !== 'visible' || presenceHeartbeatInFlight) {
       return
     }
-    let error: unknown
+    presenceHeartbeatInFlight = true
     try {
-      const result = await supabase.rpc('northstar_presence_heartbeat')
-      error = result.error
-    } catch (reason) {
-      error = reason
-    }
-    if (error) logSupabaseDiagnostic('presence heartbeat', error)
-    const refreshed = await refreshPresence()
-    if (error) {
-      const refreshFailure = refreshed ? '' : ` ${presenceError.value}`
-      const message = error instanceof Error ? error.message : (error as { message?: string }).message ?? 'The request failed.'
-      presenceError.value = `Presence heartbeat failed: ${message}.${refreshFailure}`
+      let error: unknown
+      try {
+        const result = await supabase.rpc('northstar_presence_heartbeat')
+        error = result.error
+      } catch (reason) {
+        error = reason
+      }
+      if (error) logSupabaseDiagnostic('presence heartbeat', error)
+      const refreshed = await refreshPresence()
+      if (error) {
+        const refreshFailure = refreshed ? '' : ` ${presenceError.value}`
+        const message = error instanceof Error ? error.message : (error as { message?: string }).message ?? 'The request failed.'
+        presenceError.value = `Presence heartbeat failed: ${message}.${refreshFailure}`
+      }
+    } finally {
+      presenceHeartbeatInFlight = false
     }
   }
 

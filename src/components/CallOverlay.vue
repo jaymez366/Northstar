@@ -96,7 +96,7 @@
 
 <template>
   <section
-    v-if="calls.incomingCall || calls.activeCall || calls.error || calls.notice"
+    v-if="calls.incomingCall || calls.activeCall"
     class="call-overlay"
     :class="{ 'is-minimized': calls.minimized && calls.activeCall }"
     :role="calls.minimized && calls.activeCall ? 'region' : 'dialog'"
@@ -171,13 +171,27 @@
         <button type="button" :disabled="calls.activeCall.call_type !== 'video' || calls.activeCall.status !== 'connected' || !calls.cameraEnabled" :title="calls.screenSharing ? 'Stop screen sharing' : calls.activeCall.call_type !== 'video' ? 'Switch to a video call before sharing your screen' : !calls.cameraEnabled ? 'Turn your camera on before sharing your screen' : 'Share your screen'" :aria-label="calls.screenSharing ? 'Stop screen sharing' : 'Share your screen'" :aria-pressed="calls.screenSharing" @click="calls.toggleScreenSharing"><v-icon :icon="calls.screenSharing ? 'mdi-monitor-off' : 'mdi-monitor-share'" size="19" /></button>
         <button type="button" class="end-call-control" :disabled="calls.activeCall.status === 'starting'" aria-label="End call" title="End call" @click="calls.endCall"><v-icon icon="mdi-phone-hangup" size="19" /></button>
       </div>
-      <button v-if="!calls.activeCall && !calls.incomingCall" type="button" class="dismiss" @click="calls.error = ''; calls.notice = ''">Dismiss</button>
     </div>
   </section>
+  <aside
+    v-if="!calls.incomingCall && !calls.activeCall && (calls.error || calls.notice)"
+    class="call-status-toast"
+    :class="{ 'has-error': calls.error }"
+    :role="calls.error ? 'alert' : 'status'"
+    aria-live="polite"
+  >
+    <p>{{ calls.error || calls.notice }}</p>
+    <button type="button" aria-label="Dismiss call status" @click="calls.error = ''; calls.notice = ''">Dismiss</button>
+  </aside>
 </template>
 
 <style scoped>
 .call-overlay { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(15 25 20 / 58%); }
+.call-status-toast { position: fixed; z-index: 9999; right: 20px; bottom: 20px; display: flex; width: min(460px, calc(100vw - 32px)); align-items: center; gap: 12px; border: 1px solid var(--ns-border, #dce4d8); border-radius: 12px; padding: 12px 14px; background: var(--ns-blue-tint, #eff6ff); box-shadow: 0 8px 24px rgb(19 41 32 / 16%); color: var(--ns-text-primary, #18352d); }
+.call-status-toast.has-error { background: #fff2ef; color: #7f2b23; }
+.call-status-toast p { min-width: 0; flex: 1; margin: 0; font-size: 12px; line-height: 1.45; }
+.call-status-toast button { flex: 0 0 auto; border: 1px solid currentColor; border-radius: 7px; padding: 6px 9px; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 11px; }
+.call-status-toast button:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
 .call-overlay.is-minimized { inset: auto 18px 18px auto; display: block; width: min(420px, calc(100vw - 24px)); padding: 0; background: transparent; }
 .call-card { position: relative; display: grid; width: min(100%, 460px); gap: 16px; border: 1px solid var(--ns-border, #dce4d8); border-radius: 18px; padding: 22px; background: var(--ns-surface, #fff); box-shadow: 0 24px 70px rgb(0 0 0 / 26%); color: var(--ns-text-primary, #18352d); }
 .call-card header { display: flex; align-items: center; gap: 10px; }
@@ -217,6 +231,7 @@
 .mini-actions button { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--ns-border, #dce4d8); border-radius: 50%; background: var(--ns-surface, #fff); color: inherit; cursor: pointer; }
 .mini-actions .end-mini { border-color: #b42318; background: #b42318; color: #fff; }
 @media (max-width: 520px) {
+  .call-status-toast { right: 12px; bottom: 12px; width: calc(100vw - 24px); padding: 10px; }
   .call-overlay.is-minimized { inset: auto 8px 8px; width: auto; }
   .mini-call { gap: 7px; padding: 8px; }
   .mini-video { width: 54px; height: 48px; }

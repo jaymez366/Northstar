@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useCallsStore } from '@/stores/calls'
   import { useWorkspaceStore } from '@/stores/workspace'
@@ -39,6 +39,7 @@
   const recordedVoiceFile = ref<File | null>(null)
   const recordedVoiceUrl = ref('')
   const searchResultIndex = ref(0)
+  const presenceClock = ref(Date.now())
   let suppressNextMessageClick = ''
   let longPressTimer: ReturnType<typeof setTimeout> | undefined
   let pressOrigin: { x: number, y: number } | undefined
@@ -52,10 +53,40 @@
   let recognition: SpeechRecognitionLike | null = null
   let discardRecording = false
   let pageIsUnmounting = false
+  let presenceClockTimer: ReturnType<typeof setInterval> | undefined
   const acknowledgedVisibleMessageVersions = new Set<string>()
   const pendingVisibleAcknowledgementVersions = new Set<string>()
   const visibilityChangeHandler = () => observeVisibleMessages()
   const selectedConversation = computed(() => workspace.conversations.find(item => item.id === selectedId.value))
+  function presenceLabel (online: boolean | null | undefined, lastSeenAt: string | null | undefined) {
+    if (online === true) return 'Online'
+    if (online !== false) return 'Status unavailable'
+    if (!lastSeenAt) return 'Last seen unavailable'
+
+    const timestamp = Date.parse(lastSeenAt)
+    if (!Number.isFinite(timestamp)) return 'Last seen unavailable'
+    const elapsedSeconds = Math.max(0, Math.floor((presenceClock.value - timestamp) / 1000))
+    if (elapsedSeconds < 60) return 'Last seen just now'
+
+    const relativeTimeUnits: [number, Intl.RelativeTimeFormatUnit][] = [
+      [60, 'minute'],
+      [60 * 60, 'hour'],
+      [24 * 60 * 60, 'day'],
+      [7 * 24 * 60 * 60, 'week'],
+      [30 * 24 * 60 * 60, 'month'],
+      [365 * 24 * 60 * 60, 'year'],
+    ]
+    let unit: Intl.RelativeTimeFormatUnit = 'second'
+    let divisor = 1
+    for (const [threshold, nextUnit] of relativeTimeUnits) {
+      if (elapsedSeconds < threshold) break
+      unit = nextUnit
+      divisor = threshold
+    }
+    const elapsed = Math.floor(elapsedSeconds / divisor)
+    const relativeTime = new Intl.RelativeTimeFormat(undefined, { numeric: 'always' }).format(-elapsed, unit)
+    return `Last seen ${relativeTime}`
+  }
   const composingEmployee = computed(() => {
     const employeeId = typeof route.query.employee === 'string' ? route.query.employee : ''
     return employeeId ? workspace.employees.find(item => item.id === employeeId) : undefined
@@ -130,8 +161,14 @@
     observeVisibleMessages()
   }, { immediate: true })
 
+  onMounted(() => {
+    presenceClockTimer = setInterval(() => { presenceClock.value = Date.now() }, 60_000)
+  })
+
   onUnmounted(() => {
     pageIsUnmounting = true
+    if (presenceClockTimer) clearInterval(presenceClockTimer)
+    presenceClockTimer = undefined
     uploadController?.abort()
     if (typingStopTimer) clearTimeout(typingStopTimer)
     if (selectedConversation.value) void workspace.updateConversationTyping(selectedConversation.value.id, false)
@@ -718,8 +755,8 @@
           :class="{ selected: selectedId === conversation.id }"
           @click="selectConversation(conversation.id)"
         >
-          <span class="conversation-avatar" :style="{ background: conversation.color }">{{ conversation.initials }}<i v-if="conversation.online !== null" :class="{ online: conversation.online }" /></span>
-          <span class="conversation-copy"><strong>{{ conversation.name }}</strong><small>{{ conversation.messages.at(-1)?.text }}</small></span>
+          <span class="conversation-avatar" :style="{ background: conversation.color }">{{ conversation.initials }}<i v-if="conversation.online !== null" aria-hidden="true" :class="{ online: conversation.online, offline: conversation.online === false }" /></span>
+          <span class="conversation-copy"><strong>{{ conversation.name }}</strong><small class="presence-label" :class="{ online: conversation.online === true }">{{ presenceLabel(conversation.online, conversation.lastSeenAt) }}</small><small class="conversation-preview">{{ conversation.messages.at(-1)?.text }}</small></span>
           <span class="conversation-meta"><small>{{ conversation.updatedAt }}</small><b v-if="conversation.unread">{{ conversation.unread }}</b></span>
         </button>
 
@@ -734,16 +771,21 @@
           <button class="conversation-back" type="button" @click="closeConversation">
             <v-icon icon="mdi-arrow-left" size="18" /> Back to inbox
           </button>
-          <span class="conversation-avatar large" :style="{ background: displayEmployee?.color }">{{ displayEmployee?.initials }}</span>
-          <span><strong>{{ displayEmployee?.firstName }} {{ displayEmployee?.lastName }}</strong><small>{{ selectedConversation?.online ? 'Online' : selectedConversation?.lastSeenAt ? `Last seen ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(selectedConversation.lastSeenAt))}` : selectedConversation?.title || composingEmployee?.title || 'New message' }}</small></span>
-          <button v-if="selectedConversation" class="chat-tool-button" type="button" :aria-label="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" :title="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" @click="workspace.setConversationState(selectedConversation.id, selectedConversation.archived ? 'restore' : 'archive')"><v-icon :icon="selectedConversation.archived ? 'mdi-inbox-arrow-down-outline' : 'mdi-archive-outline'" size="19" /></button>
-          <button v-if="selectedConversation" class="chat-tool-button" type="button" aria-label="Mark conversation unread" title="Mark unread" @click="markCurrentConversationUnread"><v-icon icon="mdi-email-mark-as-unread" size="19" /></button>
-          <div v-if="selectedConversation" class="chat-call-actions" role="group" aria-label="Call this employee">
-            <button class="chat-tool-button" type="button" aria-label="Start voice call" :title="calls.signalingReady ? 'Start voice call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('audio')"><v-icon icon="mdi-phone-outline" size="19" /></button>
-            <button class="chat-tool-button" type="button" aria-label="Start video call" :title="calls.signalingReady ? 'Start video call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('video')"><v-icon icon="mdi-video-outline" size="19" /></button>
+          <div class="chat-header-identity">
+            <span class="conversation-avatar large" :style="{ background: displayEmployee?.color }">{{ displayEmployee?.initials }}<i v-if="selectedConversation?.online !== null && selectedConversation?.online !== undefined" aria-hidden="true" :class="{ online: selectedConversation.online, offline: selectedConversation.online === false }" /></span>
+            <span class="chat-header-employee"><strong>{{ displayEmployee?.firstName }} {{ displayEmployee?.lastName }}</strong><small class="presence-label" :class="{ online: (selectedConversation ? selectedConversation.online : composingEmployee?.online) === true }">{{ presenceLabel(selectedConversation ? selectedConversation.online : composingEmployee?.online, selectedConversation ? selectedConversation.lastSeenAt : composingEmployee?.lastSeenAt) }}</small><small v-if="displayEmployee?.title" class="employee-title">{{ displayEmployee.title }}</small></span>
           </div>
-          <button class="chat-tool-button" type="button" :aria-expanded="messageSearchOpen" aria-label="Search in conversation" @click="messageSearchOpen = !messageSearchOpen; messageSearch = ''"><v-icon icon="mdi-magnify" size="19" /></button>
-          <a v-if="displayEmployee?.email" class="chat-email" :href="`mailto:${displayEmployee.email}`" aria-label="Email colleague"><v-icon icon="mdi-email-outline" size="19" /></a>
+          <div v-if="selectedConversation" class="chat-header-tools">
+            <div class="chat-call-actions" role="group" aria-label="Call this employee">
+              <button class="chat-tool-button" type="button" aria-label="Start voice call" :title="calls.signalingReady ? 'Start voice call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('audio')"><v-icon icon="mdi-phone-outline" size="19" /></button>
+              <button class="chat-tool-button" type="button" aria-label="Start video call" :title="calls.signalingReady ? 'Start video call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('video')"><v-icon icon="mdi-video-outline" size="19" /></button>
+            </div>
+            <small v-if="!calls.signalingReady" class="chat-call-status" role="status">Calls are unavailable until secure signaling connects.</small>
+            <button class="chat-tool-button" type="button" :aria-label="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" :title="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" @click="workspace.setConversationState(selectedConversation.id, selectedConversation.archived ? 'restore' : 'archive')"><v-icon :icon="selectedConversation.archived ? 'mdi-inbox-arrow-down-outline' : 'mdi-archive-outline'" size="19" /></button>
+            <button class="chat-tool-button" type="button" aria-label="Mark conversation unread" title="Mark unread" @click="markCurrentConversationUnread"><v-icon icon="mdi-email-mark-as-unread" size="19" /></button>
+            <button class="chat-tool-button" type="button" :aria-expanded="messageSearchOpen" aria-label="Search in conversation" @click="messageSearchOpen = !messageSearchOpen; messageSearch = ''"><v-icon icon="mdi-magnify" size="19" /></button>
+            <a v-if="displayEmployee?.email" class="chat-email" :href="`mailto:${displayEmployee.email}`" aria-label="Email colleague"><v-icon icon="mdi-email-outline" size="19" /></a>
+          </div>
         </header>
 
         <div v-if="selectedMessageIds.length" class="selection-toolbar" role="toolbar" aria-label="Selected message actions">
@@ -863,9 +905,13 @@
 .conversation-avatar { position: relative; display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border-radius: 50%; color: var(--ns-text-18352d, #18352d); font-size: 10px; font-weight: 800; }
 .conversation-avatar i { position: absolute; right: 0; bottom: 1px; width: 9px; height: 9px; border: 2px solid white; border-radius: 50%; background: var(--ns-bg-9ca89f, #9ca89f); }
 .conversation-avatar i.online { background: var(--ns-bg-68a477, #68a477); }
+.conversation-avatar i.offline { background: var(--ns-bg-9ca89f, #9ca89f); }
 .conversation-copy { display: grid; min-width: 0; flex: 1; gap: 5px; }
 .conversation-copy strong { color: var(--ns-text-18352d, #18352d); font-size: 10px; }
-.conversation-copy small { overflow: hidden; color: var(--ns-text-829187, #829187); text-overflow: ellipsis; font-size: 9px; white-space: nowrap; }
+.conversation-copy small { overflow: hidden; text-overflow: ellipsis; font-size: 9px; white-space: nowrap; }
+.conversation-copy .presence-label, .chat-header-employee .presence-label { color: var(--ns-text-829187, #829187); }
+.conversation-copy .presence-label.online, .chat-header-employee .presence-label.online { color: #428451; }
+.conversation-copy .conversation-preview { color: var(--ns-text-829187, #829187); }
 .conversation-meta { display: grid; justify-items: end; gap: 7px; color: var(--ns-text-9aa59d, #9aa59d); font-size: 8px; }
 .conversation-meta b { display: grid; width: 17px; height: 17px; place-items: center; border-radius: 50%; background: var(--ns-bg-d4ec66, #d4ec66); color: var(--ns-text-18352d, #18352d); font-size: 8px; }
 .conversation-empty { padding: 20px; color: var(--ns-text-829187, #829187); font-size: 10px; text-align: center; }
@@ -878,18 +924,24 @@
 .typing-indicator { margin: 0; padding: 5px 14px; color: var(--ns-text-secondary); font-size: 10px; font-style: italic; }
 .chat-panel { display: flex; min-width: 0; flex-direction: column; }
 .chat-header { display: flex; min-height: 69px; align-items: center; gap: 11px; padding: 12px 18px; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
+.chat-header-identity { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: 10px; }
+.chat-header-employee { display: grid; min-width: 0; gap: 4px; }
+.chat-header-employee strong, .chat-header-employee small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header-tools { display: flex; min-width: 0; flex: 0 1 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.chat-header-tools > .chat-tool-button { margin-left: 0; }
 .chat-tool-button, .message-search-panel > button, .selection-toolbar button { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 9px; background: var(--ns-surface, #fff); color: var(--ns-text-18352d, #18352d); cursor: pointer; }
 .chat-tool-button { margin-left: auto; }
-.chat-call-actions { display: flex; flex: 0 0 auto; gap: 6px; margin-left: auto; }
+.chat-call-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .chat-call-actions .chat-tool-button { margin-left: 0; }
 .chat-call-actions .chat-tool-button:disabled { cursor: not-allowed; opacity: .48; }
+.chat-call-status { max-width: 132px; color: var(--ns-text-secondary, #64756b); font-size: 9px; line-height: 1.25; }
 .chat-tool-button:focus-visible, .selection-toolbar button:focus-visible, .message-search-panel button:focus-visible, .message-context-menu button:focus-visible, .message-menu-trigger:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
 .conversation-back { display: inline-flex; min-height: 36px; align-items: center; gap: 5px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; padding: 0 9px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; font-size: 10px; }
 .conversation-back:hover { background: var(--ns-bg-f1f4eb, #f1f4eb); }
 .conversation-back:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
-.chat-header > span:nth-child(2) { display: grid; gap: 4px; }
 .chat-header strong { color: var(--ns-text-18352d, #18352d); font-size: 11px; }
 .chat-header small { color: var(--ns-text-829187, #829187); font-size: 9px; }
+.chat-header-employee .employee-title { overflow: hidden; color: var(--ns-text-secondary, #64756b); text-overflow: ellipsis; white-space: nowrap; }
 .conversation-avatar.large { flex-basis: 38px; width: 38px; height: 38px; }
 .chat-email { margin-left: auto; color: var(--ns-text-71897b, #71897b); }
 .chat-email + .chat-tool-button { margin-left: 0; }
@@ -991,8 +1043,9 @@
   .messaging-layout.has-selected-conversation .conversation-sidebar { display: none; }
   .messaging-layout.has-selected-conversation .chat-panel { min-height: 540px; }
   .chat-header { flex-wrap: wrap; gap: 9px; padding: 12px; }
+  .chat-header-identity { flex: 1 1 150px; }
+  .chat-header-tools { flex: 1 1 100%; }
   .conversation-back { flex: 0 0 auto; }
-  .chat-email { margin-left: auto; }
   .chat-panel { min-height: 390px; }
   .chat-message { max-width: 88%; }
   .message-list { padding: 16px 12px; }

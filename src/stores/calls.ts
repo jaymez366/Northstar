@@ -77,7 +77,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   let queuedIce: RTCIceCandidateInit[] = []
 
   function clearSubscriptionError () {
-    if (error.value.startsWith('Secure call signaling could not establish its Realtime subscription')) error.value = ''
+    if (error.value.startsWith('Supabase Realtime reported ')) error.value = ''
   }
 
   function startListening () {
