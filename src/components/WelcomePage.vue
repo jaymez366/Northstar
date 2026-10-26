@@ -63,11 +63,11 @@
             <span class="pulse" /> Built for business continuity
           </div>
 
-          <h1>Employee communication for everyday work and <em>critical moments.</em></h1>
+          <h1>When the stakes are high, <em>clarity</em> moves first.</h1>
 
           <p class="hero-lede">
-            NorthStar is a B2B employee communication platform for clear team
-            updates and coordinated responses when conditions change.
+            Northstar gives modern organizations the confidence to communicate
+            clearly, respond quickly, and keep people moving forward.
           </p>
 
           <div class="hero-actions">
