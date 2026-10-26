@@ -165,6 +165,71 @@ const router = createRouter({
   ],
 })
 
+const landingMetadata = {
+  title: 'NorthStar | B2B Employee Communication Platform',
+  description: 'NorthStar is a B2B employee communication platform for clear team updates and coordinated responses during critical moments.',
+  url: 'https://northstar-1k1.pages.dev/',
+}
+
+function setHeadEntry (selector: string, tagName: 'meta' | 'link', attributes: Record<string, string> | null) {
+  let element = document.head.querySelector<HTMLMetaElement | HTMLLinkElement>(selector)
+  if (!attributes) {
+    element?.remove()
+    return
+  }
+  if (!element) {
+    element = document.createElement(tagName)
+    document.head.append(element)
+  }
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value)
+}
+
+router.afterEach(to => {
+  const isLandingPage = to.path === '/'
+  document.title = isLandingPage ? landingMetadata.title : 'NorthStar | Employee Workspace'
+
+  setHeadEntry('meta[name="description"]', 'meta', isLandingPage
+    ? { name: 'description', content: landingMetadata.description }
+    : null)
+  setHeadEntry('link[rel="canonical"]', 'link', isLandingPage
+    ? { rel: 'canonical', href: landingMetadata.url }
+    : null)
+  for (const [property, content] of Object.entries({
+    'og:type': 'website',
+    'og:site_name': 'NorthStar',
+    'og:title': landingMetadata.title,
+    'og:description': landingMetadata.description,
+    'og:url': landingMetadata.url,
+  })) {
+    setHeadEntry(`meta[property="${property}"]`, 'meta', isLandingPage ? { property, content } : null)
+  }
+  for (const [name, content] of Object.entries({
+    'twitter:card': 'summary',
+    'twitter:title': landingMetadata.title,
+    'twitter:description': landingMetadata.description,
+  })) {
+    setHeadEntry(`meta[name="${name}"]`, 'meta', isLandingPage ? { name, content } : null)
+  }
+
+  const schema = document.getElementById('northstar-website-schema')
+  if (isLandingPage && !schema) {
+    const script = document.createElement('script')
+    script.id = 'northstar-website-schema'
+    script.type = 'application/ld+json'
+    script.textContent = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'NorthStar',
+      url: landingMetadata.url,
+      description: landingMetadata.description,
+    })
+    document.head.append(script)
+  } else if (!isLandingPage) {
+    schema?.remove()
+  }
+  setHeadEntry('meta[name="robots"]', 'meta', isLandingPage ? null : { name: 'robots', content: 'noindex, nofollow' })
+})
+
 type AuthStore = ReturnType<typeof useAuthStore>
 
 function requiresEmployeeProfile (to: RouteLocationNormalized, auth: AuthStore) {

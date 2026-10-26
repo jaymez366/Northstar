@@ -5,8 +5,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f3f5ef",
-  "theme_color": "#102d26",
+  "background_color": "#ffffff",
+  "theme_color": "#163B65",
   "icons": [
     {
       "src": "/northstar-icon.svg",

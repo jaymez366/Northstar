@@ -98,13 +98,13 @@ export const useCallsStore = defineStore('northstar-calls', () => {
         if (!channel) return
         if (status === 'SUBSCRIBED') {
           signalingReady.value = true
+          clearSubscriptionError()
           const reconnect = hasSubscribed || subscriptionInterrupted
           hasSubscribed = true
           subscriptionInterrupted = false
           if (reconnect) void recoverCallState()
           else {
             realtimeUnavailable = false
-            clearSubscriptionError()
             void loadPendingInvitation()
           }
         }

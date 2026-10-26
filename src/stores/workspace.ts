@@ -138,13 +138,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const loading = ref(false)
   let realtimeChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
   let notificationChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
+  let notificationRefresh: { userId: string, promise: Promise<{ message: string } | null> } | null = null
+  let notificationSubscriptionInterrupted = false
   let messageToastTimer: ReturnType<typeof setTimeout> | undefined
   let conversationRefreshPromise: Promise<string> | null = null
   let presenceHeartbeatTimer: ReturnType<typeof setInterval> | undefined
   let presenceVisibilityHandler: (() => void) | undefined
   let presenceHeartbeatInFlight = false
   let presenceRequestGeneration = 0
-  let lastPresenceDiagnosticSignature = ''
   let typingRefreshTimer: ReturnType<typeof setInterval> | undefined
   const lastTypingSentAt = new Map<string, number>()
   const pendingMessageRequests = new Map<string, string>()
@@ -164,6 +165,80 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       status: detail?.status,
     })
   }
+
+  async function refreshNotifications (replace = false): Promise<{ message: string } | null> {
+    const auth = useAuthStore()
+    if (!isUuid(auth.userId) || !auth.canAccessEmployeeWorkspace || !isSupabaseConfigured || !supabase) return null
+    const userId = auth.userId
+    if (notificationRefresh?.userId === userId) return notificationRefresh.promise
+
+    const notificationIdsAtStart = new Set(notificationList.value.map(item => item.id))
+    const client = supabase
+    const promise = (async (): Promise<{ message: string } | null> => {
+      let notificationRows: Array<{
+        id: string
+        title: string
+        message: string
+        notification_type: string
+        is_read: boolean
+        created_at: string
+        link_to?: string | null
+      }> | null = null
+      let notificationError: { message: string, code?: string } | null = null
+      const notificationQuery = await client
+        .from('notifications')
+        .select('id,title,message,notification_type,is_read,created_at,link_to')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+      if (notificationQuery.error && isMissingNotificationLinkToColumn(notificationQuery.error)) {
+        const fallbackQuery = await client
+          .from('notifications')
+          .select('id,title,message,notification_type,is_read,created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+        notificationRows = fallbackQuery.data
+        notificationError = fallbackQuery.error
+      } else {
+        notificationRows = notificationQuery.data
+        notificationError = notificationQuery.error
+      }
+
+      if (useAuthStore().userId !== userId || !useAuthStore().canAccessEmployeeWorkspace) return null
+      if (notificationError) return notificationError
+
+      const loadedNotifications = (notificationRows ?? []).map(row => ({
+        id: row.id,
+        title: row.title,
+        description: row.message,
+        category: notificationCategory(row.notification_type),
+        createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)),
+        unread: !row.is_read,
+        to: notificationRoute(row.notification_type, row.title, row.link_to),
+      }))
+      if (replace) {
+        const loadedIds = new Set(loadedNotifications.map(item => item.id))
+        const arrivedDuringRefresh = notificationList.value.filter(item =>
+          !notificationIdsAtStart.has(item.id) && !loadedIds.has(item.id),
+        )
+        notificationList.value = [...arrivedDuringRefresh, ...loadedNotifications]
+      } else {
+        const existingIds = new Set(notificationList.value.map(item => item.id))
+        notificationList.value = [
+          ...loadedNotifications.filter(item => !existingIds.has(item.id)),
+          ...notificationList.value,
+        ]
+      }
+      return null
+    })()
+
+    notificationRefresh = { userId, promise }
+    try {
+      return await promise
+    } finally {
+      if (notificationRefresh?.promise === promise) notificationRefresh = null
+    }
+  }
+
   const departments = computed(() => {
     return departmentList.value.map(department => ({
       name: department.name,
@@ -319,45 +394,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
     }
 
-    let notificationRows: Array<{
-      id: string
-      title: string
-      message: string
-      notification_type: string
-      is_read: boolean
-      created_at: string
-      link_to?: string | null
-    }> | null = null
-    let notificationError: { message: string } | null = null
-    const notificationQuery = await supabase
-      .from('notifications')
-      .select('id,title,message,notification_type,is_read,created_at,link_to')
-      .eq('user_id', auth.userId)
-      .order('created_at', { ascending: false })
-    if (notificationQuery.error && isMissingNotificationLinkToColumn(notificationQuery.error)) {
-      const fallbackQuery = await supabase
-        .from('notifications')
-        .select('id,title,message,notification_type,is_read,created_at')
-        .eq('user_id', auth.userId)
-        .order('created_at', { ascending: false })
-      notificationRows = fallbackQuery.data
-      notificationError = fallbackQuery.error
-    } else {
-      notificationRows = notificationQuery.data
-      notificationError = notificationQuery.error
-    }
+    const notificationError = await refreshNotifications(true)
     if (notificationError) {
       recordError('notifications', notificationError)
-    } else {
-      notificationList.value = (notificationRows ?? []).map(row => ({
-        id: row.id,
-        title: row.title,
-        description: row.message,
-        category: notificationCategory(row.notification_type),
-        createdAt: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)),
-        unread: !row.is_read,
-        to: notificationRoute(row.notification_type, row.title, row.link_to),
-      }))
     }
 
     const { data: eventRows, error: eventError } = await supabase
@@ -561,9 +600,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       .subscribe((status, subscriptionError) => {
         if (status === 'SUBSCRIBED') {
+          if (notificationSubscriptionInterrupted) {
+            notificationSubscriptionInterrupted = false
+            if (backendError.value.startsWith('Supabase notification subscription is temporarily unavailable (')) {
+              backendError.value = ''
+            }
+            void refreshNotifications().then(error => {
+              if (error) {
+                backendError.value = `Could not recover missed notifications: ${error.message}`
+                console.error(backendError.value, error)
+              } else if (backendError.value.startsWith('Could not recover missed notifications:')) {
+                backendError.value = ''
+              }
+            })
+          }
           void refreshConversations()
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          backendError.value = `Supabase notification subscription failed: ${status}`
+          notificationSubscriptionInterrupted = true
+          backendError.value = `Supabase notification subscription is temporarily unavailable (${status}). Reconnecting automatically.`
           logSupabaseDiagnostic('notification Realtime subscription', subscriptionError ?? new Error(status))
         }
       })
@@ -571,6 +625,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function unsubscribeFromMessages () {
     stopPresenceTracking()
+    notificationSubscriptionInterrupted = false
     if (typingRefreshTimer) clearInterval(typingRefreshTimer)
     typingRefreshTimer = undefined
     for (const conversationId of lastTypingSentAt.keys()) void updateConversationTyping(conversationId, false)
@@ -799,10 +854,57 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     } catch (reason) {
       error = reason
     }
-    if (requestGeneration !== presenceRequestGeneration) return false
     if (error) {
       const message = error instanceof Error ? error.message : (error as { message?: string }).message ?? 'The request failed.'
       logSupabaseDiagnostic('employee presence query', error)
+      if (import.meta.env.DEV) {
+        const failedRows: unknown[] = Array.isArray(data) ? data : data && typeof data === 'object' ? [data] : []
+        const requestedUserIds = ids.map(normalizeUuid).filter((id): id is string => id !== null)
+        const failedReturnedUserIds = failedRows.map(row => row && typeof row === 'object'
+          ? normalizeUuid((row as { user_id?: unknown }).user_id)
+          : null).filter((id): id is string => id !== null)
+        console.info('[NorthStar presence RPC diagnostic]', {
+          success: false,
+          responseType: Array.isArray(data) ? 'array' : data === null ? 'null' : typeof data,
+          responseKeys: data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : [],
+          rowKeys: [...new Set(failedRows.flatMap(row => row && typeof row === 'object' ? Object.keys(row) : []))],
+          requestedUserIdCount: ids.length,
+          requestedUserIds,
+          returnedUserIds: failedReturnedUserIds,
+          parsedPresenceRecordCount: 0,
+          matchedEmployeeCount: 0,
+          matchedConversationParticipantCount: 0,
+          employeeMappings: employeeList.value.map(employee => ({
+            userId: normalizeUuid(employee.id) ?? '[invalid UUID]',
+            wasRequested: Boolean(normalizeUuid(employee.id) && requestedUserIds.includes(normalizeUuid(employee.id)!)),
+            returnedMatchingId: Boolean(normalizeUuid(employee.id) && failedReturnedUserIds.includes(normalizeUuid(employee.id)!)),
+            parsed: false,
+            status: 'unknown',
+            reason: 'presence-list RPC returned an error',
+          })),
+          conversationMappings: conversations.value.map(conversation => {
+            const conversationUserId = normalizeUuid(conversation.employeeId)
+            const directoryMatch = Boolean(conversationUserId && employeeList.value.some(employee => normalizeUuid(employee.id) === conversationUserId))
+            return {
+              conversationUserId: conversationUserId ?? '[invalid UUID]',
+              directoryMatch,
+              presenceMatch: false,
+              normalizedIdsMatch: directoryMatch,
+              status: 'unknown',
+              reason: 'presence-list RPC returned an error',
+            }
+          }),
+          adejareEmployeeIds: {
+            directory: employeeList.value.filter(employee => employee.firstName.trim().toLocaleLowerCase() === 'adejare'
+              && employee.lastName.trim().toLocaleLowerCase() === 'ade').map(employee => normalizeUuid(employee.id)).filter(Boolean),
+            conversation: conversations.value.filter(conversation => conversation.name.trim().toLocaleLowerCase() === 'adejare ade')
+              .map(conversation => normalizeUuid(conversation.employeeId)).filter(Boolean),
+          },
+          errorCode: error && typeof error === 'object' ? (error as { code?: unknown }).code ?? null : null,
+          staleResponse: requestGeneration !== presenceRequestGeneration,
+        })
+      }
+      if (requestGeneration !== presenceRequestGeneration) return false
       for (const employee of employeeList.value) {
         employee.online = null
         employee.lastSeenAt = null
@@ -817,6 +919,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ? [data]
         : []
     const requestedIds = new Set(ids.map(normalizeUuid).filter((id): id is string => id !== null))
+    const returnedUserIds = rows.map(row => row && typeof row === 'object'
+      ? normalizeUuid((row as { user_id?: unknown }).user_id)
+      : null).filter((id): id is string => id !== null)
     const presenceByUser = new Map<string, { last_seen_at: string | null, is_online: boolean }>()
     for (const row of rows) {
       if (!row || typeof row !== 'object') continue
@@ -834,6 +939,80 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         last_seen_at: currentTimestamp >= previousTimestamp ? lastSeenAt : previous?.last_seen_at ?? null,
       })
     }
+    if (import.meta.env.DEV) {
+      const employeeMappings = employeeList.value.map(employee => {
+        const employeeId = normalizeUuid(employee.id)
+        const returnedRows = employeeId ? rows.filter(row => row && typeof row === 'object'
+          && normalizeUuid((row as { user_id?: unknown }).user_id) === employeeId) : []
+        const parsedPresence = employeeId ? presenceByUser.get(employeeId) : undefined
+        let reason: string | null = null
+        if (!employeeId) reason = 'employee directory ID is not a valid UUID'
+        else if (!requestedIds.has(employeeId)) reason = 'employee directory ID was not included in p_user_ids'
+        else if (!returnedRows.length) reason = 'RPC returned no record for this requested ID'
+        else if (!parsedPresence) reason = 'matching RPC record was rejected because is_online was not a boolean'
+        return {
+          userId: employeeId ?? '[invalid UUID]',
+          wasRequested: Boolean(employeeId && requestedIds.has(employeeId)),
+          returnedMatchingId: Boolean(employeeId && returnedUserIds.includes(employeeId)),
+          parsed: Boolean(parsedPresence),
+          status: parsedPresence ? (parsedPresence.is_online ? 'online' : 'offline') : 'unknown',
+          reason,
+        }
+      })
+      const conversationMappings = conversations.value.map(conversation => {
+        const conversationUserId = normalizeUuid(conversation.employeeId)
+        const directoryEmployee = conversationUserId
+          ? employeeList.value.find(employee => normalizeUuid(employee.id) === conversationUserId)
+          : undefined
+        const directoryUserId = normalizeUuid(directoryEmployee?.id)
+        const parsedPresence = directoryUserId ? presenceByUser.get(directoryUserId) : undefined
+        let reason: string | null = null
+        if (!conversationUserId) reason = 'conversation participant ID is not a valid UUID'
+        else if (!directoryEmployee) reason = 'conversation participant has no matching employee-directory profile'
+        else if (!directoryUserId || !requestedIds.has(directoryUserId)) reason = 'directory profile ID was not included in p_user_ids'
+        else if (!parsedPresence) reason = 'RPC returned no usable presence record for the directory ID'
+        return {
+          conversationUserId: conversationUserId ?? '[invalid UUID]',
+          directoryUserId,
+          directoryMatch: Boolean(directoryEmployee),
+          presenceMatch: Boolean(parsedPresence),
+          normalizedIdsMatch: Boolean(conversationUserId && directoryUserId && conversationUserId === directoryUserId),
+          wasRequested: Boolean(directoryUserId && requestedIds.has(directoryUserId)),
+          returnedMatchingId: Boolean(directoryUserId && returnedUserIds.includes(directoryUserId)),
+          status: parsedPresence ? (parsedPresence.is_online ? 'online' : 'offline') : 'unknown',
+          reason,
+        }
+      })
+      const adejareDirectoryIds = employeeList.value
+        .filter(employee => employee.firstName.trim().toLocaleLowerCase() === 'adejare'
+          && employee.lastName.trim().toLocaleLowerCase() === 'ade')
+        .map(employee => normalizeUuid(employee.id))
+        .filter((id): id is string => id !== null)
+      const adejareConversationIds = conversations.value
+        .filter(conversation => conversation.name.trim().toLocaleLowerCase() === 'adejare ade')
+        .map(conversation => normalizeUuid(conversation.employeeId))
+        .filter((id): id is string => id !== null)
+      console.info('[NorthStar presence RPC diagnostic]', {
+        success: true,
+        responseType: Array.isArray(data) ? 'array' : data && typeof data === 'object' ? 'object' : typeof data,
+        responseKeys: data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : [],
+        rowKeys: [...new Set(rows.flatMap(row => row && typeof row === 'object' ? Object.keys(row) : []))],
+        requestedUserIdCount: ids.length,
+        requestedUserIds: [...requestedIds],
+        returnedUserIds,
+        parsedPresenceRecordCount: presenceByUser.size,
+        matchedEmployeeCount: employeeMappings.filter(employee => employee.parsed).length,
+        matchedConversationParticipantCount: conversationMappings.filter(participant => participant.directoryMatch && participant.presenceMatch).length,
+        employeeMappings,
+        conversationMappings,
+        adejareEmployeeIds: {
+          directory: [...new Set(adejareDirectoryIds)],
+          conversation: [...new Set(adejareConversationIds)],
+        },
+        staleResponse: requestGeneration !== presenceRequestGeneration,
+      })
+    }
+    if (requestGeneration !== presenceRequestGeneration) return false
     for (const employee of employeeList.value) {
       const employeeId = normalizeUuid(employee.id)
       const presence = employeeId ? presenceByUser.get(employeeId) : undefined
@@ -843,30 +1022,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         : null
     }
     applyConversationPresence()
-    if (import.meta.env.DEV) {
-      const unavailableConversationIds = [...new Set(conversations.value
-        .filter(conversation => conversation.online === null)
-        .map(conversation => normalizeUuid(conversation.employeeId) ?? conversation.employeeId))]
-      if (unavailableConversationIds.length > 0) {
-        const diagnostic = {
-          responseShape: Array.isArray(data) ? 'array' : data && typeof data === 'object' ? 'object' : typeof data,
-          requestedUserIds: [...requestedIds],
-          responseUserIds: rows.map(row => row && typeof row === 'object'
-            ? normalizeUuid((row as { user_id?: unknown }).user_id)
-            : null).filter((id): id is string => id !== null),
-          unavailableConversationUserIds: unavailableConversationIds,
-          matchingDirectoryUserIds: unavailableConversationIds.map(id => {
-            const employee = employeeList.value.find(item => normalizeUuid(item.id) === normalizeUuid(id))
-            return employee ? normalizeUuid(employee.id) : null
-          }),
-        }
-        const signature = JSON.stringify(diagnostic)
-        if (signature !== lastPresenceDiagnosticSignature) {
-          console.debug('[NorthStar presence mapping]', diagnostic)
-          lastPresenceDiagnosticSignature = signature
-        }
-      }
-    }
     presenceError.value = ''
     return true
   }
