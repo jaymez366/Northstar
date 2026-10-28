@@ -44,6 +44,7 @@ type IncidentUpdate = {
   created_at: string
 }
 type Responder = { user_id: string, first_name: string, last_name: string }
+type ReporterProfile = { user_id: string, first_name: string | null, last_name: string | null }
 
 const administratorEmail = 'northstaradmin34@gmail.com'
 const auth = useAuthStore()
@@ -51,6 +52,7 @@ const route = useRoute()
 const incidents = ref<Incident[]>([])
 const updates = ref<IncidentUpdate[]>([])
 const responders = ref<Responder[]>([])
+const reporterProfiles = ref<ReporterProfile[]>([])
 const incidentCounts = ref({ total: 0, active: 0, resolved: 0, critical: 0 })
 const loading = ref(false)
 const submitting = ref(false)
@@ -77,6 +79,18 @@ const reportCategories = [
 ]
 const severityOptions: IncidentSeverity[] = ['low', 'medium', 'high', 'critical']
 const statusOptions: IncidentStatus[] = ['open', 'investigating', 'resolved', 'closed']
+const statusDisplayLabels: Record<IncidentStatus, string> = {
+  open: 'Awaiting Response',
+  investigating: 'In Progress',
+  resolved: 'Resolved',
+  closed: 'Closed',
+}
+const severityDisplayLabels: Record<IncidentSeverity, string> = {
+  low: 'Low',
+  medium: 'Moderate',
+  high: 'High',
+  critical: 'Critical',
+}
 const isDesignatedAdmin = computed(() => auth.isAdmin && auth.emailVerified
   && auth.userEmail.trim().toLowerCase() === administratorEmail)
 const canReportIncident = computed(() => !isDesignatedAdmin.value && auth.canAccessEmployeeWorkspace)
@@ -84,7 +98,8 @@ const filteredIncidents = computed(() => {
   const query = search.value.trim().toLowerCase()
   if (!query) return incidents.value
   return incidents.value.filter(incident =>
-    [incident.title, incident.description, incident.category, incident.location, incident.severity, incident.status]
+    [incident.title, incident.description, incident.category, incident.location,
+      severityLabel(incident.severity), statusLabel(incident.status)]
       .some(value => value.toLowerCase().includes(query)))
 })
 const overviewItems = computed(() => [
@@ -113,8 +128,11 @@ function employeeLabel(id: string | null, displayName?: string | null) {
 
 function reporterLabel(id?: string | null, displayName?: string | null, isReporter = false) {
   if (isReporter || (id && id === auth.userId)) return 'You'
-  const responder = responders.value.find(item => item.user_id === id)
-  return responder ? `${responder.first_name} ${responder.last_name}`.trim() : displayName?.trim() || (id ? 'Employee' : 'Reporter details unavailable')
+  const reporter = id ? reporterProfiles.value.find(item => item.user_id === id) : undefined
+  const profileName = reporter ? `${reporter.first_name ?? ''} ${reporter.last_name ?? ''}`.trim() : ''
+  const resolvedName = profileName || displayName?.trim()
+  if (resolvedName) return resolvedName
+  return id ? 'Reporter' : 'Reporter identity hidden'
 }
 
 function mapCompanyIncidentRows(value: unknown): Incident[] {
@@ -130,7 +148,11 @@ function mapCompanyIncidentRows(value: unknown): Incident[] {
 }
 
 function statusLabel(status: IncidentStatus) {
-  return status.charAt(0).toUpperCase() + status.slice(1)
+  return statusDisplayLabels[status]
+}
+
+function severityLabel(severity: IncidentSeverity) {
+  return severityDisplayLabels[severity]
 }
 
 function categoryLabel(category: string) {
@@ -212,7 +234,13 @@ async function loadResponders() {
     console.error('Northstar responder list failed', error)
     return
   }
-  responders.value = (data ?? [])
+  const registrations = data ?? []
+  reporterProfiles.value = registrations.map((item: { user_id: string, first_name: string | null, last_name: string | null }) => ({
+    user_id: item.user_id,
+    first_name: item.first_name,
+    last_name: item.last_name,
+  }))
+  responders.value = registrations
     .filter((item: { approval_status: string | null, employment_status: string | null, email_verification_status: string }) =>
       item.approval_status === 'approved' && item.employment_status === 'active' && item.email_verification_status === 'Verified')
     .map((item: { user_id: string, first_name: string, last_name: string }) => ({
@@ -322,7 +350,7 @@ async function saveIncidentUpdate(incident: Incident) {
   const draft = draftFor(incident)
   const update = draft.update.trim()
   if (!update) {
-    actionError.value = 'Enter an update before saving.'
+    actionError.value = 'Enter an update message or private note before saving. Your selected status and other changes are still selected.'
     return
   }
   savingIncidentId.value = incident.id
@@ -427,8 +455,8 @@ onUnmounted(() => {
       <div v-else class="active-list">
         <article v-for="incident in incidents.filter(item => ['open', 'investigating'].includes(item.status))" :key="incident.id" class="active-item">
           <span class="active-severity" :class="incident.severity"><v-icon icon="mdi-alert-outline" size="17" /></span>
-          <div><strong>{{ incident.title }}</strong><p>{{ incident.location }} · {{ incident.category.replaceAll('_', ' ') }} · {{ incident.severity }}</p></div>
-          <span class="status-pill" :class="incident.status">{{ incident.status }}</span>
+          <div><strong>{{ incident.title }}</strong><p>{{ incident.location }} · {{ incident.category.replaceAll('_', ' ') }} · {{ severityLabel(incident.severity) }}</p></div>
+          <span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span>
         </article>
       </div>
     </section>
@@ -438,7 +466,7 @@ onUnmounted(() => {
       <form class="incident-form" @submit.prevent="submitIncident">
         <label class="form-field"><span>Incident title</span><input v-model="reportForm.title" required minlength="5" maxlength="180" autocomplete="off" placeholder="Briefly describe the incident"></label>
         <label class="form-field"><span>Category</span><select v-model="reportForm.category" required><option disabled value="">Select category</option><option v-for="category in reportCategories" :key="category.value" :value="category.value">{{ category.label }}</option></select></label>
-        <label class="form-field"><span>Severity</span><select v-model="reportForm.severity" required><option disabled value="">Select severity</option><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severity }}</option></select></label>
+        <label class="form-field"><span>Severity</span><select v-model="reportForm.severity" required><option disabled value="">Select severity</option><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabel(severity) }}</option></select></label>
         <label class="form-field"><span>Location</span><input v-model="reportForm.location" required minlength="2" maxlength="500" placeholder="Building, site, or area"></label>
         <label class="form-field full-field"><span>Description</span><textarea v-model="reportForm.description" required minlength="10" maxlength="10000" rows="4" placeholder="Describe what happened and any immediate safety concerns"></textarea></label>
         <p v-if="formError" class="form-message error-message" role="alert">{{ formError }}</p>
@@ -476,7 +504,7 @@ onUnmounted(() => {
             </div>
             <div class="incident-badges" aria-label="Incident status and severity">
               <span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span>
-              <span class="severity-pill" :class="incident.severity">{{ categoryLabel(incident.severity) }}</span>
+              <span class="severity-pill" :class="incident.severity">{{ severityLabel(incident.severity) }}</span>
             </div>
           </header>
           <p class="employee-incident-description">{{ incident.description }}</p>
@@ -542,17 +570,17 @@ onUnmounted(() => {
               <td><strong class="incident-title">{{ incident.title }}</strong><small class="incident-description-preview">{{ incident.description }}</small></td>
               <td>{{ incident.category.replaceAll('_', ' ') }}</td>
               <td>{{ incident.location }}</td>
-              <td><span class="severity-pill" :class="incident.severity">{{ incident.severity }}</span></td>
+              <td><span class="severity-pill" :class="incident.severity">{{ severityLabel(incident.severity) }}</span></td>
               <td>{{ reporterLabel(incident.reported_by, incident.reporter_name) }}</td>
               <td>{{ formatDate(incident.reported_at) }}</td>
-              <td><span class="status-pill" :class="incident.status">{{ incident.status }}</span></td>
+              <td><span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span></td>
               <td><button class="details-button" type="button" @click="expandedIncidentId = expandedIncidentId === incident.id ? '' : incident.id">{{ expandedIncidentId === incident.id ? 'Hide details' : 'Details' }}</button></td>
             </tr>
             <tr v-if="expandedIncidentId === incident.id" class="detail-row">
               <td colspan="8">
                 <div class="incident-detail">
                   <div class="incident-description"><p class="eyebrow">INCIDENT DESCRIPTION</p><p>{{ incident.description }}</p><p><strong>Reported by:</strong> {{ reporterLabel(incident.reported_by, incident.reporter_name) }} · <strong>Reported:</strong> {{ formatDate(incident.reported_at) }} <span v-if="incident.assigned_responder || incident.assigned_responder_name"> · <strong>Responder:</strong> {{ employeeLabel(incident.assigned_responder ?? '', incident.assigned_responder_name) }}</span></p><p v-if="incident.resolution_details"><strong>Resolution:</strong> {{ incident.resolution_details }}</p></div>
-                  <section class="history-section"><h3>Incident history</h3><p v-if="historyFor(incident.id).length === 0" class="history-empty">No updates are visible for this incident.</p><ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ update.event_type.replaceAll('_', ' ') }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${update.old_status} → ` : '' }}{{ update.new_status }}</small><small v-if="update.new_severity">Severity: {{ update.old_severity ? `${update.old_severity} → ` : '' }}{{ update.new_severity }}</small><small v-if="update.event_type === 'responder_changed' || update.new_assigned_responder">Responder: {{ employeeLabel(update.new_assigned_responder) }}</small><small v-if="update.new_resolution_details">Resolution: {{ update.new_resolution_details }}</small></div></li></ol></section>
+                  <section class="history-section"><h3>Incident history</h3><p v-if="historyFor(incident.id).length === 0" class="history-empty">No updates are visible for this incident.</p><ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ categoryLabel(update.event_type) }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${statusLabel(update.old_status)} → ` : '' }}{{ statusLabel(update.new_status) }}</small><small v-if="update.new_severity">Severity: {{ update.old_severity ? `${severityLabel(update.old_severity)} → ` : '' }}{{ severityLabel(update.new_severity) }}</small><small v-if="update.event_type === 'responder_changed' || update.new_assigned_responder">Responder: {{ employeeLabel(update.new_assigned_responder) }}</small><small v-if="update.new_resolution_details">Resolution: {{ update.new_resolution_details }}</small></div></li></ol></section>
                   <section v-if="canReportIncident && incident.is_reporter" class="admin-update-panel reporter-status-panel">
                     <h3>Your incident status</h3>
                     <label class="form-field">
@@ -563,7 +591,7 @@ onUnmounted(() => {
                           :key="status"
                           :disabled="['resolved', 'closed'].includes(status) && !incident.resolution_details?.trim()"
                           :value="status"
-                        >{{ status }}</option>
+                        >{{ statusLabel(status) }}</option>
                       </select>
                     </label>
                     <p class="status-update-hint">You can update the status of an incident you reported. Severity and other protected details remain unchanged.</p>
@@ -576,7 +604,7 @@ onUnmounted(() => {
                       @click="saveReporterStatus(incident)"
                     >{{ savingReporterStatusId === incident.id ? 'Saving…' : 'Update my incident status' }}</button>
                   </section>
-                  <section v-if="isDesignatedAdmin" class="admin-update-panel"><h3>Administrator incident controls</h3><label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option value="admin">Private admin note</option></select></label><p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p><div class="admin-fields"><label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ status }}</option></select></label><label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severity }}</option></select></label><label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ `${responder.first_name} ${responder.last_name}`.trim() }}</option></select></label></div><label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label><label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note' : 'Update for the selected audience' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Add useful response details"></textarea></label><p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p><button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button></section>
+                  <section v-if="isDesignatedAdmin" class="admin-update-panel"><h3>Administrator incident controls</h3><label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option value="admin">Private admin note</option></select></label><p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p><div class="admin-fields"><label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabel(severity) }}</option></select></label><label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ `${responder.first_name} ${responder.last_name}`.trim() }}</option></select></label></div><label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label><label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note (required)' : 'Update for the selected audience (required)' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Enter the message before saving"></textarea></label><p class="status-update-hint">An update message is required to save. If validation fails, your selected status and other changes will remain selected.</p><p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p><button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button></section>
                 </div>
               </td>
             </tr>
