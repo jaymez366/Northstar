@@ -3,6 +3,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import { useCallsStore } from '@/stores/calls'
   import { useWorkspaceStore } from '@/stores/workspace'
+  import { formatPresenceLabel } from '@/utils/presence'
 
   const route = useRoute()
   const router = useRouter()
@@ -59,33 +60,7 @@
   const visibilityChangeHandler = () => observeVisibleMessages()
   const selectedConversation = computed(() => workspace.conversations.find(item => item.id === selectedId.value))
   function presenceLabel (online: boolean | null | undefined, lastSeenAt: string | null | undefined) {
-    if (online === true) return 'Online'
-    if (online !== false) return 'Status unavailable'
-    if (!lastSeenAt) return 'Last seen unavailable'
-
-    const timestamp = Date.parse(lastSeenAt)
-    if (!Number.isFinite(timestamp)) return 'Last seen unavailable'
-    const elapsedSeconds = Math.max(0, Math.floor((presenceClock.value - timestamp) / 1000))
-    if (elapsedSeconds < 60) return 'Last seen just now'
-
-    const relativeTimeUnits: [number, Intl.RelativeTimeFormatUnit][] = [
-      [60, 'minute'],
-      [60 * 60, 'hour'],
-      [24 * 60 * 60, 'day'],
-      [7 * 24 * 60 * 60, 'week'],
-      [30 * 24 * 60 * 60, 'month'],
-      [365 * 24 * 60 * 60, 'year'],
-    ]
-    let unit: Intl.RelativeTimeFormatUnit = 'second'
-    let divisor = 1
-    for (const [threshold, nextUnit] of relativeTimeUnits) {
-      if (elapsedSeconds < threshold) break
-      unit = nextUnit
-      divisor = threshold
-    }
-    const elapsed = Math.floor(elapsedSeconds / divisor)
-    const relativeTime = new Intl.RelativeTimeFormat(undefined, { numeric: 'always' }).format(-elapsed, unit)
-    return `Last seen ${relativeTime}`
+    return formatPresenceLabel(online, lastSeenAt, presenceClock.value)
   }
   const composingEmployee = computed(() => {
     const employeeId = typeof route.query.employee === 'string' ? route.query.employee : ''

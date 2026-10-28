@@ -952,65 +952,38 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         else if (!parsedPresence) reason = 'matching RPC record was rejected because is_online was not a boolean'
         return {
           userId: employeeId ?? '[invalid UUID]',
+          matchedRowId: returnedRows.length
+            ? normalizeUuid((returnedRows[0] as { user_id?: unknown }).user_id)
+            : null,
           wasRequested: Boolean(employeeId && requestedIds.has(employeeId)),
           returnedMatchingId: Boolean(employeeId && returnedUserIds.includes(employeeId)),
           parsed: Boolean(parsedPresence),
           status: parsedPresence ? (parsedPresence.is_online ? 'online' : 'offline') : 'unknown',
+          lastSeenAt: parsedPresence?.last_seen_at ?? null,
           reason,
         }
       })
-      const conversationMappings = conversations.value.map(conversation => {
-        const conversationUserId = normalizeUuid(conversation.employeeId)
-        const directoryEmployee = conversationUserId
-          ? employeeList.value.find(employee => normalizeUuid(employee.id) === conversationUserId)
-          : undefined
-        const directoryUserId = normalizeUuid(directoryEmployee?.id)
-        const parsedPresence = directoryUserId ? presenceByUser.get(directoryUserId) : undefined
-        let reason: string | null = null
-        if (!conversationUserId) reason = 'conversation participant ID is not a valid UUID'
-        else if (!directoryEmployee) reason = 'conversation participant has no matching employee-directory profile'
-        else if (!directoryUserId || !requestedIds.has(directoryUserId)) reason = 'directory profile ID was not included in p_user_ids'
-        else if (!parsedPresence) reason = 'RPC returned no usable presence record for the directory ID'
-        return {
-          conversationUserId: conversationUserId ?? '[invalid UUID]',
-          directoryUserId,
-          directoryMatch: Boolean(directoryEmployee),
-          presenceMatch: Boolean(parsedPresence),
-          normalizedIdsMatch: Boolean(conversationUserId && directoryUserId && conversationUserId === directoryUserId),
-          wasRequested: Boolean(directoryUserId && requestedIds.has(directoryUserId)),
-          returnedMatchingId: Boolean(directoryUserId && returnedUserIds.includes(directoryUserId)),
-          status: parsedPresence ? (parsedPresence.is_online ? 'online' : 'offline') : 'unknown',
-          reason,
-        }
-      })
-      const adejareDirectoryIds = employeeList.value
-        .filter(employee => employee.firstName.trim().toLocaleLowerCase() === 'adejare'
-          && employee.lastName.trim().toLocaleLowerCase() === 'ade')
-        .map(employee => normalizeUuid(employee.id))
-        .filter((id): id is string => id !== null)
-      const adejareConversationIds = conversations.value
-        .filter(conversation => conversation.name.trim().toLocaleLowerCase() === 'adejare ade')
-        .map(conversation => normalizeUuid(conversation.employeeId))
-        .filter((id): id is string => id !== null)
-      console.info('[NorthStar presence RPC diagnostic]', {
+      const diagnostic = {
         success: true,
-        responseType: Array.isArray(data) ? 'array' : data && typeof data === 'object' ? 'object' : typeof data,
-        responseKeys: data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : [],
-        rowKeys: [...new Set(rows.flatMap(row => row && typeof row === 'object' ? Object.keys(row) : []))],
-        requestedUserIdCount: ids.length,
         requestedUserIds: [...requestedIds],
-        returnedUserIds,
-        parsedPresenceRecordCount: presenceByUser.size,
-        matchedEmployeeCount: employeeMappings.filter(employee => employee.parsed).length,
-        matchedConversationParticipantCount: conversationMappings.filter(participant => participant.directoryMatch && participant.presenceMatch).length,
-        employeeMappings,
-        conversationMappings,
-        adejareEmployeeIds: {
-          directory: [...new Set(adejareDirectoryIds)],
-          conversation: [...new Set(adejareConversationIds)],
-        },
+        returnedPresenceRows: rows.map(row => {
+          if (!row || typeof row !== 'object') return { invalidRow: true }
+          const presence = row as { user_id?: unknown, last_seen_at?: unknown, is_online?: unknown }
+          return {
+            user_id: presence.user_id ?? null,
+            last_seen_at: presence.last_seen_at ?? null,
+            is_online: presence.is_online ?? null,
+          }
+        }),
+        employeeMappings: employeeMappings.map(employee => ({
+          employeeId: employee.userId,
+          matchedRowId: employee.matchedRowId,
+          parsedStatus: employee.parsed ? employee.status : null,
+          mappingReason: employee.reason,
+        })),
         staleResponse: requestGeneration !== presenceRequestGeneration,
-      })
+      }
+      console.log(`[NorthStar presence RPC diagnostic]\n${JSON.stringify(diagnostic, null, 2)}`)
     }
     if (requestGeneration !== presenceRequestGeneration) return false
     for (const employee of employeeList.value) {

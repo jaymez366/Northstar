@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { formatLastSeen } from '@/utils/presence'
 
 const workspace = useWorkspaceStore()
 const route = useRoute()
@@ -47,8 +48,10 @@ function isUuid (value: string): boolean {
           <span class="employee-avatar"
             :style="employee.photoUrl ? { backgroundImage: `url(${employee.photoUrl})` } : { background: employee.color }">{{
               employee.photoUrl ? '' : employee.initials }}</span>
-          <span class="presence" :class="{ online: employee.online === true }"><i />{{ employee.online === true ? 'Online' : employee.online === false ? 'Offline' : 'Status unavailable'
-            }}</span>
+          <span class="presence-status">
+            <span class="presence" :class="{ online: employee.online === true }"><i />{{ employee.online === true ? 'Online' : employee.online === false ? 'Offline' : 'Status unavailable' }}</span>
+            <small v-if="employee.online === false" class="presence-last-seen">{{ formatLastSeen(employee.lastSeenAt) }}</small>
+          </span>
         </div>
 
         <h2>{{ employee.firstName }} {{ employee.lastName }}</h2>
@@ -92,6 +95,17 @@ function isUuid (value: string): boolean {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.presence-status {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.presence-last-seen {
+  color: var(--ns-text-829187, #829187);
+  font-size: 9px;
 }
 
 .employee-avatar {
