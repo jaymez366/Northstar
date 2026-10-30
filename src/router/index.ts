@@ -10,6 +10,8 @@ import AdminDashboard from '@/pages/adminDashboard.vue'
 import AdminLogin from '@/pages/adminLogin.vue'
 import AdminEvents from '@/pages/adminEvents.vue'
 import AdminResources from '@/pages/adminResources.vue'
+import AdminDepartments from '@/pages/adminDepartments.vue'
+import DepartmentCollaboration from '@/pages/departmentCollaboration.vue'
 import Announcements from '@/pages/announcements.vue'
 import Departments from '@/pages/departments.vue'
 import DisasterManagement from '@/pages/disasterManagement.vue'
@@ -71,6 +73,11 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
     },
     {
+      path: '/department',
+      component: DepartmentCollaboration,
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowDesignatedAdmin: true },
+    },
+    {
       path: '/events',
       component: Events,
       meta: { requiresAuth: true, requiresEmployeeWorkspace: true },
@@ -103,6 +110,11 @@ const router = createRouter({
     {
       path: '/admin/resources',
       component: AdminResources,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/departments',
+      component: AdminDepartments,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {

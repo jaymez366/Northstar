@@ -5,7 +5,6 @@ import { isSupabaseConfigured, supabase, supabaseConfigurationError } from '../.
 import { validateNorthstarPhoto } from '@/utils/registrationPhoto'
 
 const signupConfirmationRedirect = () => `${window.location.origin}/auth/callback`
-const administratorEmail = 'northstaradmin34@gmail.com'
 const emailConfirmationCallbackDetected = (() => {
   if (typeof window === 'undefined' || !window.location.pathname.endsWith('/auth/callback')) return false
   const url = new URL(window.location.href)
@@ -35,6 +34,7 @@ export type UserProfile = {
   jobTitle: string
   department: string
   departmentId: string
+  departmentLevel: number | null
   phone: string
   photoUrl: string
   avatarPath: string
@@ -72,6 +72,7 @@ function emptyProfile (): UserProfile {
     jobTitle: '',
     department: '',
     departmentId: '',
+    departmentLevel: null,
     phone: '',
     photoUrl: '',
     avatarPath: '',
@@ -199,12 +200,21 @@ export const useAuthStore = defineStore('auth', () => {
     }
     profileLoaded.value = false
     profileUnavailable.value = false
+    // Use the database's canonical designated-administrator check for UI
+    // routing too. The server remains authoritative for every protected RPC
+    // and RLS decision; a failed check must never grant admin UI access.
+    const { data: designatedAdmin, error: adminCheckError } = await supabase.rpc('northstar_is_designated_admin')
+    if (id !== userId.value) return
+    isAdmin.value = !adminCheckError && designatedAdmin === true
+    if (adminCheckError) {
+      console.error('Could not verify designated administrator status with Supabase', adminCheckError)
+    }
     // Read the signed-in user's canonical profile row under the existing RLS
     // policies. The admin registration RPC reads profiles.registration_completed
     // directly, so login routing must use that same source of truth.
     const { data: ownProfile, error } = await supabase
       .from('profiles')
-      .select('first_name,last_name,job_title,department_id,phone_number,avatar_url,role,employment_status,approval_status,rejection_reason,registration_completed,employee_id,employment_type,office_location,date_of_joining,manager_name,bio,departments(name)')
+      .select('first_name,last_name,job_title,department_id,department_level,phone_number,avatar_url,role,employment_status,approval_status,rejection_reason,registration_completed,employee_id,employment_type,office_location,date_of_joining,manager_name,bio,departments(name)')
       .eq('id', id)
       .maybeSingle()
 
@@ -235,6 +245,7 @@ export const useAuthStore = defineStore('auth', () => {
       jobTitle: ownProfile.job_title ?? '',
       department: departmentRelation?.name ?? '',
       departmentId: ownProfile.department_id ?? '',
+      departmentLevel: Number.isInteger(ownProfile.department_level) ? ownProfile.department_level : null,
       phone: ownProfile.phone_number ?? '',
       photoUrl: '',
       avatarPath: ownProfile.avatar_url ?? '',
@@ -266,7 +277,6 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
     userFirstName.value = profile.value.firstName
-    isAdmin.value = isDesignatedAdministrator()
     profileLoaded.value = true
     profileUnavailable.value = false
     errorMessage.value = avatarLoadError
@@ -624,7 +634,7 @@ export const useAuthStore = defineStore('auth', () => {
     userEmail.value = user.email ?? ''
     isAuthenticated.value = true
     emailVerified.value = Boolean(user.email_confirmed_at)
-    isAdmin.value = isDesignatedAdministrator()
+    isAdmin.value = false
     profile.value = {
       ...profile.value,
       firstName: String(user.user_metadata.first_name ?? ''),
@@ -646,12 +656,6 @@ export const useAuthStore = defineStore('auth', () => {
     profile.value = emptyProfile()
     isPasswordRecovery.value = false
     registrationSubmissionSucceeded.value = false
-  }
-
-  function isDesignatedAdministrator () {
-    return isAuthenticated.value
-      && emailVerified.value
-      && userEmail.value.trim().toLowerCase() === administratorEmail
   }
 
   function dispose () {

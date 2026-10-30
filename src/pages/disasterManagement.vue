@@ -23,30 +23,31 @@ type Incident = {
   status: IncidentStatus
   assigned_responder?: string | null
   resolution_details: string | null
+  deleted_at?: string | null
+  department_id?: string | null
   created_at?: string
   updated_at?: string
 }
 type IncidentUpdate = {
   id: string
   incident_id: string
-  actor_id: string | null
+  actor_id?: string | null
   event_type: string
-  visibility: IncidentVisibility
-  old_status: IncidentStatus | null
-  new_status: IncidentStatus | null
-  old_severity: IncidentSeverity | null
-  new_severity: IncidentSeverity | null
-  old_assigned_responder: string | null
-  new_assigned_responder: string | null
-  old_resolution_details: string | null
-  new_resolution_details: string | null
+  visibility?: IncidentVisibility
+  old_status?: IncidentStatus | null
+  new_status?: IncidentStatus | null
+  old_severity?: IncidentSeverity | null
+  new_severity?: IncidentSeverity | null
+  old_assigned_responder?: string | null
+  new_assigned_responder?: string | null
+  old_resolution_details?: string | null
+  new_resolution_details?: string | null
   details: string | null
   created_at: string
 }
 type Responder = { user_id: string, first_name: string, last_name: string }
 type ReporterProfile = { user_id: string, first_name: string | null, last_name: string | null }
 
-const administratorEmail = 'northstaradmin34@gmail.com'
 const auth = useAuthStore()
 const route = useRoute()
 const incidents = ref<Incident[]>([])
@@ -55,12 +56,22 @@ const responders = ref<Responder[]>([])
 const reporterProfiles = ref<ReporterProfile[]>([])
 const incidentCounts = ref({ total: 0, active: 0, resolved: 0, critical: 0 })
 const loading = ref(false)
+const historyLoading = ref(false)
 const submitting = ref(false)
 const savingIncidentId = ref('')
 const loadError = ref('')
+const historyError = ref('')
 const formError = ref('')
 const actionError = ref('')
 const successMessage = ref('')
+const editingIncident = ref<Incident | null>(null)
+const editDialogOpen = ref(false)
+const editSubmitting = ref(false)
+const editError = ref('')
+const deleteIncident = ref<Incident | null>(null)
+const deleteSubmitting = ref(false)
+const deleteError = ref('')
+const editForm = ref({ title: '', description: '', category: '', severity: '' as IncidentSeverity | '', location: '' })
 const reporterStatusDrafts = ref<Record<string, IncidentStatus>>({})
 const reporterStatusErrors = ref<Record<string, string>>({})
 const reporterStatusMessages = ref<Record<string, string>>({})
@@ -91,9 +102,9 @@ const severityDisplayLabels: Record<IncidentSeverity, string> = {
   high: 'High',
   critical: 'Critical',
 }
-const isDesignatedAdmin = computed(() => auth.isAdmin && auth.emailVerified
-  && auth.userEmail.trim().toLowerCase() === administratorEmail)
-const canReportIncident = computed(() => !isDesignatedAdmin.value && auth.canAccessEmployeeWorkspace)
+const isDesignatedAdmin = computed(() => auth.isAdmin && auth.emailVerified)
+const isDepartmentHead = computed(() => !isDesignatedAdmin.value && auth.profile.departmentLevel === 1)
+const canReportIncident = computed(() => !isDesignatedAdmin.value && auth.canAccessEmployeeWorkspace && auth.profile.departmentLevel !== null)
 const filteredIncidents = computed(() => {
   const query = search.value.trim().toLowerCase()
   if (!query) return incidents.value
@@ -119,7 +130,7 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-function employeeLabel(id: string | null, displayName?: string | null) {
+function employeeLabel(id?: string | null, displayName?: string | null) {
   if (!id) return displayName?.trim() || 'Unassigned'
   if (id === auth.userId) return 'You'
   const responder = responders.value.find(item => item.user_id === id)
@@ -170,31 +181,35 @@ async function loadIncidents() {
   }
   loading.value = true
   loadError.value = ''
+  historyError.value = ''
   try {
-    const incidentQuery = isDesignatedAdmin.value
-      ? supabase.from('northstar_incidents')
-        .select('id,title,description,category,severity,location,reported_by,reported_at,status,assigned_responder,resolution_details,created_at,updated_at')
-        .order('reported_at', { ascending: false })
-      : supabase.rpc('northstar_list_company_incidents')
-        .order('reported_at', { ascending: false })
-    const [incidentResult, updateResult] = await Promise.all([
-      incidentQuery,
-      supabase.from('northstar_incident_updates')
-        .select('id,incident_id,actor_id,event_type,visibility,old_status,new_status,old_severity,new_severity,old_assigned_responder,new_assigned_responder,old_resolution_details,new_resolution_details,details,created_at')
-        .order('created_at', { ascending: false }),
-    ])
+    const incidentResult = await supabase.rpc('northstar_department_list_incidents')
     if (incidentResult.error) throw new Error(`Could not load incident reports: ${incidentResult.error.message}`)
-    if (updateResult.error) throw new Error(`Could not load incident history: ${updateResult.error.message}`)
-    incidents.value = isDesignatedAdmin.value
-      ? (incidentResult.data ?? []) as Incident[]
-      : mapCompanyIncidentRows(incidentResult.data ?? [])
-    updates.value = (updateResult.data ?? []) as IncidentUpdate[]
+    incidents.value = mapCompanyIncidentRows(incidentResult.data ?? [])
+    historyLoading.value = true
+    try {
+      if (incidents.value.length) {
+        const { data, error } = await supabase.rpc('northstar_department_list_incident_history', {
+          p_incident_ids: incidents.value.map(incident => incident.id),
+        })
+        if (error) throw error
+        updates.value = (data ?? []) as IncidentUpdate[]
+      } else {
+        updates.value = []
+      }
+    } catch (error) {
+      updates.value = []
+      historyError.value = error instanceof Error ? error.message : 'Could not load incident history.'
+      console.error('Northstar incident history load failed')
+    } finally {
+      historyLoading.value = false
+    }
     if (isDesignatedAdmin.value) {
       const [totalResult, activeResult, resolvedResult, criticalResult] = await Promise.all([
-        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }),
-        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'investigating']),
-        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
-        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).eq('severity', 'critical').in('status', ['open', 'investigating']),
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).is('deleted_at', null).in('status', ['open', 'investigating']),
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).is('deleted_at', null).eq('status', 'resolved'),
+        supabase.from('northstar_incidents').select('id', { count: 'exact', head: true }).is('deleted_at', null).eq('severity', 'critical').in('status', ['open', 'investigating']),
       ])
       const countError = [totalResult, activeResult, resolvedResult, criticalResult].find(result => result.error)?.error
       if (countError) throw new Error(`Could not load incident counts: ${countError.message}`)
@@ -207,9 +222,9 @@ async function loadIncidents() {
     } else {
       incidentCounts.value = {
         total: incidents.value.length,
-        active: incidents.value.filter(incident => ['open', 'investigating'].includes(incident.status)).length,
+        active: incidents.value.filter(incident => !incident.deleted_at && ['open', 'investigating'].includes(incident.status)).length,
         resolved: incidents.value.filter(incident => incident.status === 'resolved').length,
-        critical: incidents.value.filter(incident => incident.severity === 'critical' && ['open', 'investigating'].includes(incident.status)).length,
+        critical: incidents.value.filter(incident => !incident.deleted_at && incident.severity === 'critical' && ['open', 'investigating'].includes(incident.status)).length,
       }
     }
     const linkedIncidentId = typeof route.query.incident === 'string' ? route.query.incident : ''
@@ -222,7 +237,81 @@ async function loadIncidents() {
     updates.value = []
     console.error('Northstar incident load failed', error)
   } finally {
+    historyLoading.value = false
     loading.value = false
+  }
+}
+
+function openIncidentEditor(incident: Incident) {
+  if (!canReportIncident.value || incident.is_reporter !== true) return
+  editingIncident.value = incident
+  editForm.value = {
+    title: incident.title,
+    description: incident.description,
+    category: incident.category,
+    severity: incident.severity,
+    location: incident.location,
+  }
+  editError.value = ''
+  editDialogOpen.value = true
+}
+
+async function saveReporterEdit() {
+  const incident = editingIncident.value
+  if (!incident || !canReportIncident.value || !supabase || editSubmitting.value) return
+  const values = {
+    title: editForm.value.title.trim(),
+    description: editForm.value.description.trim(),
+    category: editForm.value.category,
+    severity: editForm.value.severity,
+    location: editForm.value.location.trim(),
+  }
+  if (values.title.length < 5 || values.title.length > 180
+      || values.description.length < 10 || values.description.length > 10000
+      || values.location.length < 2 || values.location.length > 500
+      || !reportCategories.some(category => category.value === values.category)
+      || !severityOptions.includes(values.severity as IncidentSeverity)) {
+    editError.value = 'Check the title, description, category, severity, and location, then try again.'
+    return
+  }
+  editSubmitting.value = true
+  editError.value = ''
+  try {
+    const { error } = await supabase.rpc('northstar_reporter_edit_incident', {
+      p_incident_id: incident.id,
+      p_title: values.title,
+      p_description: values.description,
+      p_category: values.category,
+      p_severity: values.severity,
+      p_location: values.location,
+    })
+    if (error) throw error
+    editDialogOpen.value = false
+    editingIncident.value = null
+    successMessage.value = 'Your incident report was updated.'
+    await loadIncidents()
+  } catch (error) {
+    editError.value = error instanceof Error ? error.message : 'Could not update the incident report.'
+  } finally {
+    editSubmitting.value = false
+  }
+}
+
+async function confirmReporterDelete() {
+  const incident = deleteIncident.value
+  if (!incident || !canReportIncident.value || incident.is_reporter !== true || !supabase || deleteSubmitting.value) return
+  deleteSubmitting.value = true
+  deleteError.value = ''
+  try {
+    const { error } = await supabase.rpc('northstar_reporter_soft_delete_incident', { p_incident_id: incident.id })
+    if (error) throw error
+    deleteIncident.value = null
+    successMessage.value = 'Your incident report was deleted.'
+    await loadIncidents()
+  } catch (error) {
+    deleteError.value = error instanceof Error ? error.message : 'Could not delete the incident report.'
+  } finally {
+    deleteSubmitting.value = false
   }
 }
 
@@ -269,7 +358,7 @@ async function submitIncident() {
   actionError.value = ''
   successMessage.value = ''
   try {
-    const { data, error } = await supabase.rpc('northstar_report_incident', {
+    const { data, error } = await supabase.rpc('northstar_department_report_incident', {
       p_title: values.title,
       p_description: values.description,
       p_category: values.category,
@@ -346,7 +435,7 @@ async function saveReporterStatus(incident: Incident) {
 }
 
 async function saveIncidentUpdate(incident: Incident) {
-  if (!isDesignatedAdmin.value || !supabase || savingIncidentId.value) return
+  if ((!isDesignatedAdmin.value && !isDepartmentHead.value) || !supabase || savingIncidentId.value) return
   const draft = draftFor(incident)
   const update = draft.update.trim()
   if (!update) {
@@ -357,8 +446,8 @@ async function saveIncidentUpdate(incident: Incident) {
   actionError.value = ''
   successMessage.value = ''
   try {
-    const isPrivateNote = draft.visibility === 'admin'
-    const { error } = await supabase.rpc('northstar_admin_update_incident', {
+    const isPrivateNote = isDesignatedAdmin.value && draft.visibility === 'admin'
+    const { error } = await supabase.rpc(isDesignatedAdmin.value ? 'northstar_admin_update_incident' : 'northstar_department_head_update_incident', {
       p_incident_id: incident.id,
       p_status: isPrivateNote ? incident.status : draft.status,
       p_severity: isPrivateNote ? incident.severity : draft.severity,
@@ -432,8 +521,8 @@ onUnmounted(() => {
       <div class="section-heading">
         <div>
           <p class="eyebrow">LIVE RESPONSE</p>
-          <h2 id="active-incidents-heading">{{ isDesignatedAdmin ? 'Active emergencies' : 'Your active incidents' }}</h2>
-          <p class="section-description">{{ isDesignatedAdmin ? 'Current incidents and their response status.' : 'Current incidents reported by or assigned to your account.' }}</p>
+          <h2 id="active-incidents-heading">{{ isDesignatedAdmin ? 'Active emergencies' : 'Department active incidents' }}</h2>
+          <p class="section-description">{{ isDesignatedAdmin ? 'Current incidents and their response status.' : 'Current incidents and their response status in your department.' }}</p>
         </div>
         <span class="section-count">{{ loading ? 'Loading' : `${incidentCounts.active} active` }}</span>
       </div>
@@ -453,7 +542,7 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-else class="active-list">
-        <article v-for="incident in incidents.filter(item => ['open', 'investigating'].includes(item.status))" :key="incident.id" class="active-item">
+        <article v-for="incident in incidents.filter(item => !item.deleted_at && ['open', 'investigating'].includes(item.status))" :key="incident.id" class="active-item">
           <span class="active-severity" :class="incident.severity"><v-icon icon="mdi-alert-outline" size="17" /></span>
           <div><strong>{{ incident.title }}</strong><p>{{ incident.location }} · {{ incident.category.replaceAll('_', ' ') }} · {{ severityLabel(incident.severity) }}</p></div>
           <span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span>
@@ -479,8 +568,8 @@ onUnmounted(() => {
       <div class="section-heading register-heading">
         <div>
           <p class="eyebrow">INCIDENT REGISTER</p>
-          <h2 id="incident-register-heading">{{ isDesignatedAdmin ? 'Incident register' : 'Incidents available to you' }}</h2>
-          <p class="section-description">{{ isDesignatedAdmin ? 'Searchable incident records with severity, ownership, status, and history.' : 'Only reports you submitted or incidents assigned to you are available here.' }}</p>
+          <h2 id="incident-register-heading">{{ isDesignatedAdmin ? 'Incident register' : 'Department incident reports' }}</h2>
+          <p class="section-description">{{ isDesignatedAdmin ? 'Searchable incident records with severity, ownership, status, and history.' : 'Incident reports and permitted history for your department.' }}</p>
         </div>
         <button class="details-button refresh-button" :disabled="loading" type="button" @click="loadIncidents">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
         <label class="search-field">
@@ -502,9 +591,20 @@ onUnmounted(() => {
               <p class="eyebrow">{{ categoryLabel(incident.category) }}</p>
               <h3>{{ incident.title }}</h3>
             </div>
-            <div class="incident-badges" aria-label="Incident status and severity">
-              <span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span>
-              <span class="severity-pill" :class="incident.severity">{{ severityLabel(incident.severity) }}</span>
+            <div class="incident-card-actions">
+              <div class="incident-badges" aria-label="Incident status and severity">
+                <span class="status-pill" :class="incident.status">{{ statusLabel(incident.status) }}</span>
+                <span class="severity-pill" :class="incident.severity">{{ severityLabel(incident.severity) }}</span>
+              </div>
+              <v-menu v-if="canReportIncident && incident.is_reporter === true" location="bottom end">
+                <template #activator="{ props }">
+                  <button v-bind="props" class="incident-menu-button" type="button" :aria-label="`Actions for ${incident.title}`"><v-icon icon="mdi-dots-vertical" size="20" /></button>
+                </template>
+                <v-list density="compact">
+                  <v-list-item title="Edit Incident" prepend-icon="mdi-pencil-outline" @click="openIncidentEditor(incident)" />
+                  <v-list-item title="Delete Incident" prepend-icon="mdi-delete-outline" @click="deleteIncident = incident; deleteError = ''" />
+                </v-list>
+              </v-menu>
             </div>
           </header>
           <p class="employee-incident-description">{{ incident.description }}</p>
@@ -537,7 +637,9 @@ onUnmounted(() => {
           </section>
           <section class="history-section employee-history">
             <h4>Incident history</h4>
-            <p v-if="historyFor(incident.id).length === 0" class="history-empty">No updates are available.</p>
+            <p v-if="historyLoading" class="history-empty" aria-live="polite">Loading incident history…</p>
+            <p v-else-if="historyError" class="history-empty error-message" role="alert">Incident history is unavailable.</p>
+            <p v-else-if="historyFor(incident.id).length === 0" class="history-empty">No updates are available.</p>
             <ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ categoryLabel(update.event_type) }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${statusLabel(update.old_status)} → ` : '' }}{{ statusLabel(update.new_status) }}</small></div></li></ol>
           </section>
         </article>
@@ -567,7 +669,7 @@ onUnmounted(() => {
           </tbody>
           <tbody v-for="incident in filteredIncidents" v-else-if="!loading && !loadError" :key="incident.id">
             <tr>
-              <td><strong class="incident-title">{{ incident.title }}</strong><small class="incident-description-preview">{{ incident.description }}</small></td>
+              <td><strong class="incident-title">{{ incident.title }}</strong><span v-if="incident.deleted_at" class="deleted-incident-label">Deleted report · retained for audit</span><small class="incident-description-preview">{{ incident.description }}</small></td>
               <td>{{ incident.category.replaceAll('_', ' ') }}</td>
               <td>{{ incident.location }}</td>
               <td><span class="severity-pill" :class="incident.severity">{{ severityLabel(incident.severity) }}</span></td>
@@ -580,7 +682,7 @@ onUnmounted(() => {
               <td colspan="8">
                 <div class="incident-detail">
                   <div class="incident-description"><p class="eyebrow">INCIDENT DESCRIPTION</p><p>{{ incident.description }}</p><p><strong>Reported by:</strong> {{ reporterLabel(incident.reported_by, incident.reporter_name) }} · <strong>Reported:</strong> {{ formatDate(incident.reported_at) }} <span v-if="incident.assigned_responder || incident.assigned_responder_name"> · <strong>Responder:</strong> {{ employeeLabel(incident.assigned_responder ?? '', incident.assigned_responder_name) }}</span></p><p v-if="incident.resolution_details"><strong>Resolution:</strong> {{ incident.resolution_details }}</p></div>
-                  <section class="history-section"><h3>Incident history</h3><p v-if="historyFor(incident.id).length === 0" class="history-empty">No updates are visible for this incident.</p><ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ categoryLabel(update.event_type) }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${statusLabel(update.old_status)} → ` : '' }}{{ statusLabel(update.new_status) }}</small><small v-if="update.new_severity">Severity: {{ update.old_severity ? `${severityLabel(update.old_severity)} → ` : '' }}{{ severityLabel(update.new_severity) }}</small><small v-if="update.event_type === 'responder_changed' || update.new_assigned_responder">Responder: {{ employeeLabel(update.new_assigned_responder) }}</small><small v-if="update.new_resolution_details">Resolution: {{ update.new_resolution_details }}</small></div></li></ol></section>
+                  <section class="history-section"><h3>Incident history</h3><p v-if="historyLoading" class="history-empty" aria-live="polite">Loading incident history…</p><p v-else-if="historyError" class="history-empty error-message" role="alert">Incident history is unavailable.</p><p v-else-if="historyFor(incident.id).length === 0" class="history-empty">No updates are visible for this incident.</p><ol v-else class="history-list"><li v-for="update in historyFor(incident.id)" :key="update.id"><span class="history-dot" /><div><strong>{{ categoryLabel(update.event_type) }}</strong><time>{{ formatDate(update.created_at) }}</time><p v-if="update.details">{{ update.details }}</p><small v-if="update.new_status">Status: {{ update.old_status ? `${statusLabel(update.old_status)} → ` : '' }}{{ statusLabel(update.new_status) }}</small><small v-if="update.new_severity">Severity: {{ update.old_severity ? `${severityLabel(update.old_severity)} → ` : '' }}{{ severityLabel(update.new_severity) }}</small><small v-if="isDesignatedAdmin && (update.event_type === 'responder_changed' || update.new_assigned_responder)">Responder: {{ employeeLabel(update.new_assigned_responder) }}</small><small v-if="isDesignatedAdmin && update.new_resolution_details">Resolution: {{ update.new_resolution_details }}</small></div></li></ol></section>
                   <section v-if="canReportIncident && incident.is_reporter" class="admin-update-panel reporter-status-panel">
                     <h3>Your incident status</h3>
                     <label class="form-field">
@@ -604,7 +706,7 @@ onUnmounted(() => {
                       @click="saveReporterStatus(incident)"
                     >{{ savingReporterStatusId === incident.id ? 'Saving…' : 'Update my incident status' }}</button>
                   </section>
-                  <section v-if="isDesignatedAdmin" class="admin-update-panel"><h3>Administrator incident controls</h3><label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option value="admin">Private admin note</option></select></label><p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p><div class="admin-fields"><label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabel(severity) }}</option></select></label><label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ `${responder.first_name} ${responder.last_name}`.trim() }}</option></select></label></div><label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label><label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note (required)' : 'Update for the selected audience (required)' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Enter the message before saving"></textarea></label><p class="status-update-hint">An update message is required to save. If validation fails, your selected status and other changes will remain selected.</p><p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p><button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button></section>
+                  <section v-if="(isDesignatedAdmin || isDepartmentHead) && !incident.deleted_at" class="admin-update-panel"><h3>Administrator incident controls</h3><label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option v-if="isDesignatedAdmin" value="admin">Private admin note</option></select></label><p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p><div class="admin-fields"><label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabel(severity) }}</option></select></label><label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ `${responder.first_name} ${responder.last_name}`.trim() }}</option></select></label></div><label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label><label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note (required)' : 'Update for the selected audience (required)' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Enter the message before saving"></textarea></label><p class="status-update-hint">An update message is required to save. If validation fails, your selected status and other changes will remain selected.</p><p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p><button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button></section>
                 </div>
               </td>
             </tr>
@@ -612,6 +714,35 @@ onUnmounted(() => {
         </table>
       </div>
     </section>
+
+    <v-dialog v-model="editDialogOpen" max-width="620">
+      <v-card class="incident-dialog-card">
+        <v-card-title>Edit Incident</v-card-title>
+        <v-card-text>
+          <form class="incident-form dialog-form" @submit.prevent="saveReporterEdit">
+            <label class="form-field"><span>Incident title</span><input v-model="editForm.title" required minlength="5" maxlength="180"></label>
+            <label class="form-field"><span>Category</span><select v-model="editForm.category" required><option v-for="category in reportCategories" :key="category.value" :value="category.value">{{ category.label }}</option></select></label>
+            <label class="form-field"><span>Severity</span><select v-model="editForm.severity" required><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabel(severity) }}</option></select></label>
+            <label class="form-field"><span>Location</span><input v-model="editForm.location" required minlength="2" maxlength="500"></label>
+            <label class="form-field full-field"><span>Description</span><textarea v-model="editForm.description" required minlength="10" maxlength="10000" rows="4"></textarea></label>
+            <p v-if="editError" class="form-message error-message" role="alert">{{ editError }}</p>
+            <div class="dialog-actions"><button class="details-button" type="button" :disabled="editSubmitting" @click="editDialogOpen = false">Cancel</button><button class="submit-button" type="submit" :disabled="editSubmitting">{{ editSubmitting ? 'Saving…' : 'Save changes' }}</button></div>
+          </form>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog :model-value="Boolean(deleteIncident)" max-width="440" @update:model-value="value => { if (!value && !deleteSubmitting) deleteIncident = null }">
+      <v-card class="incident-dialog-card">
+        <v-card-title>Delete Incident</v-card-title>
+        <v-card-text>
+          <p>This report will be removed from employee incident lists. Its history will be retained for audit.</p>
+          <p v-if="deleteIncident" class="delete-title">{{ deleteIncident.title }}</p>
+          <p v-if="deleteError" class="form-message error-message" role="alert">{{ deleteError }}</p>
+          <div class="dialog-actions"><button class="details-button" type="button" :disabled="deleteSubmitting" @click="deleteIncident = null">Cancel</button><button class="submit-button delete-confirm-button" type="button" :disabled="deleteSubmitting" @click="confirmReporterDelete">{{ deleteSubmitting ? 'Deleting…' : 'Delete Incident' }}</button></div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
 
     <section class="preparedness-section" aria-labelledby="preparedness-heading">
       <div class="section-heading">
@@ -700,12 +831,21 @@ onUnmounted(() => {
 .table-message { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 20px; color: var(--ns-text-718178, #718178); font-size: 10px; }
 .table-message.error-message { display: block; padding-bottom: 0; }
 .incident-title { display: block; max-width: 210px; color: var(--ns-text-364d40, #364d40); font-size: 10px; }
+.deleted-incident-label { display: block; margin-top: 3px; color: var(--ns-text-a4792f, #8c6b2f); font-size: 9px; font-weight: 700; }
 .incident-description-preview { display: block; overflow: hidden; max-width: 210px; margin-top: 4px; color: var(--ns-text-829187, #829187); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .severity-pill, .status-pill { display: inline-flex; border-radius: 999px; padding: 5px 8px; background: var(--ns-bg-f1f3ee, #f1f3ee); color: var(--ns-text-5e7064, #5e7064); font-size: 9px; text-transform: capitalize; white-space: nowrap; }
 .severity-pill.high, .severity-pill.critical, .status-pill.open { background: var(--ns-bg-fff0eb, #fff0eb); color: var(--ns-text-a34c39, #a34c39); }
 .severity-pill.medium, .status-pill.investigating { background: var(--ns-bg-fbf3e4, #fbf3e4); color: var(--ns-text-8a682f, #8a682f); }
 .status-pill.resolved, .status-pill.closed, .severity-pill.low { background: var(--ns-bg-edf4ed, #edf4ed); color: var(--ns-text-53785f, #53785f); }
 .details-button { border: 1px solid var(--ns-border-dce4d8, #dce4d8); border-radius: 6px; padding: 6px 8px; background: var(--ns-bg-fff, #fff); color: var(--ns-text-526c5c, #526c5c); font: 9px "Manrope", sans-serif; cursor: pointer; white-space: nowrap; }
+.incident-card-actions { display: flex; align-items: center; gap: 8px; }
+.incident-menu-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--ns-border-e1e7de, #e1e7de); border-radius: 9px; background: var(--ns-bg-fff, #fff); color: var(--ns-text-526c5c, #526c5c); cursor: pointer; }
+.incident-menu-button:hover { background: var(--ns-bg-f2f6f0, #f2f6f0); }
+.incident-dialog-card { border: 1px solid var(--ns-border-e1e7de, #e1e7de); border-radius: 14px !important; }
+.dialog-form { padding-top: 4px; }
+.dialog-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: 9px; }
+.delete-title { border-left: 3px solid var(--ns-border-5b9669, #5b9669); padding-left: 10px; color: var(--ns-text-30493b, #30493b); font-weight: 700; }
+.delete-confirm-button { background: var(--ns-bg-a34c39, #a34c39); }
 .detail-row > td { padding: 0; background: var(--ns-bg-fbfcfa, #fbfcfa); }
 .incident-detail { display: grid; gap: 18px; padding: 18px 20px; }
 .incident-description > p:not(.eyebrow) { margin: 5px 0; color: var(--ns-text-65776b, #65776b); font-size: 10px; line-height: 1.65; white-space: pre-wrap; }

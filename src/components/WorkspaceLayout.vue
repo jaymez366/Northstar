@@ -35,6 +35,7 @@
     { title: 'Announcements', to: '/announcements', icon: 'mdi-bullhorn-outline' },
     { title: 'Employees', to: '/employees', icon: 'mdi-account-group-outline' },
     { title: 'Departments', to: '/departments', icon: 'mdi-domain' },
+    { title: 'Department space', to: '/department', icon: 'mdi-account-group-outline' },
     { title: 'Events', to: '/events', icon: 'mdi-calendar-month-outline' },
     { title: 'Resources', to: '/resources', icon: 'mdi-folder-outline' },
     { title: 'Disaster management', to: '/disaster-management', icon: 'mdi-shield-alert-outline' },

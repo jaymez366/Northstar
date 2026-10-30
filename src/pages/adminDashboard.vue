@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { departmentRankLabel } from '@/utils/departmentHierarchy'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
 const workspace = useWorkspaceStore()
@@ -46,6 +47,18 @@ type EmployeeRegistrationRecord = {
   current_date_of_joining: string | null
   current_manager_name: string | null
   current_bio: string | null
+}
+type DepartmentManagementRecord = {
+  department_id: string
+  department_name: string
+  user_id: string | null
+  display_name: string | null
+  role: string | null
+  department_level: number | null
+  approval_status: string | null
+  employment_status: string | null
+  registration_completed: boolean | null
+  email_verified: boolean | null
 }
 const employeeRecords = ref<EmployeeRegistrationRecord[]>([])
 const emailVerificationRecords = ref<{
@@ -128,6 +141,13 @@ const employeeTabs = [
 ] as const
 const registrationSearch = ref('')
 const selectedEmployee = ref<EmployeeRegistrationRecord | null>(null)
+const departmentManagementRecords = ref<DepartmentManagementRecord[]>([])
+const selectedEmployeeAssignment = ref<DepartmentManagementRecord | null>(null)
+const approvalRank = ref('')
+const approvalDialogError = ref('')
+const registrationApprovalSuccess = ref('')
+const approvalReplacement = ref<{ employee: EmployeeRegistrationRecord, currentHead: DepartmentManagementRecord | null, departmentName: string } | null>(null)
+const approvalOutgoingLevel = ref('')
 const rejectEmployee = ref<EmployeeRegistrationRecord | null>(null)
 const rejectionReason = ref('')
 const rejectionCorrectionFields = ref<string[]>([])
@@ -294,8 +314,22 @@ async function openRejectionHistory(record: RejectionHistoryRecord) {
 
 async function openEmployeeDetails(employee: EmployeeRegistrationRecord) {
   selectedEmployee.value = employee
+  selectedEmployeeAssignment.value = null
   employeePhotoUrl.value = ''
   employeePhotoPreviewOpen.value = false
+  approvalRank.value = ''
+  approvalDialogError.value = ''
+  registrationApprovalSuccess.value = ''
+  approvalReplacement.value = null
+  if (auth.isAdmin && supabase) {
+    const { data, error } = await supabase.rpc('northstar_admin_list_department_management')
+    if (error) {
+      approvalDialogError.value = `Could not load current department rank: ${error.message}`
+    } else {
+      departmentManagementRecords.value = (data ?? []) as DepartmentManagementRecord[]
+      selectedEmployeeAssignment.value = departmentManagementRecords.value.find(row => row.user_id === employee.user_id) ?? null
+    }
+  }
   if (!supabase || !isUuid(employee.user_id)) return
   employeePhotoLoading.value = true
   try {
@@ -312,6 +346,94 @@ async function openEmployeeDetails(employee: EmployeeRegistrationRecord) {
   } finally {
     employeePhotoLoading.value = false
   }
+}
+
+async function submitRegistrationApproval (employee: EmployeeRegistrationRecord, replaceCurrentHead: boolean, outgoingLevel: number | null) {
+  if (!auth.isAdmin || !supabase || !isUuid(employee.user_id) || updatingEmployeeId.value) return
+  const level = Number(approvalRank.value)
+  if (!Number.isInteger(level) || level < 1 || level > 5) {
+    approvalDialogError.value = 'Choose a Department Rank before approving this registration.'
+    return
+  }
+  updatingEmployeeId.value = employee.user_id
+  approvalDialogError.value = ''
+  try {
+    const { error } = await supabase.rpc('northstar_admin_approve_employee_with_department_level', {
+      p_user_id: employee.user_id,
+      p_department_level: level,
+      p_replace_current_head: replaceCurrentHead,
+      p_outgoing_department_level: outgoingLevel,
+    })
+    if (error) {
+      approvalDialogError.value = `Could not approve registration and assign its department rank: ${error.message}`
+      return
+    }
+    approvalReplacement.value = null
+    selectedEmployee.value = null
+    approvalRank.value = ''
+    registrationApprovalSuccess.value = `Registration approved with ${departmentRankLabel(level)}.`
+    await loadEmployeeRecords()
+    await loadDepartmentManagementRecords()
+  } catch (error) {
+    approvalDialogError.value = 'Could not approve registration and assign its department rank. Please try again.'
+    console.error(approvalDialogError.value, error)
+  } finally {
+    updatingEmployeeId.value = ''
+  }
+}
+
+async function approveSelectedRegistration () {
+  const employee = selectedEmployee.value
+  if (!employee || employee.approval_status !== 'pending') return
+  if (!selectedEmployeeAssignment.value?.department_id) {
+    approvalDialogError.value = 'This employee has no assigned department. Assign a department before approving.'
+    return
+  }
+  if (!approvalRank.value) {
+    approvalDialogError.value = 'Choose a Department Rank before approving this registration.'
+    return
+  }
+  const level = Number(approvalRank.value)
+  if (level !== 1) {
+    await submitRegistrationApproval(employee, false, null)
+    return
+  }
+  const head = departmentManagementRecords.value.find(row => row.department_id === selectedEmployeeAssignment.value?.department_id
+    && row.user_id !== employee.user_id && row.department_level === 1
+    && row.approval_status === 'approved' && row.employment_status === 'active'
+    && row.registration_completed === true && row.email_verified === true) ?? null
+  if (head) {
+    approvalReplacement.value = {
+      employee,
+      currentHead: head,
+      departmentName: selectedEmployeeAssignment.value.department_name,
+    }
+    approvalOutgoingLevel.value = ''
+    approvalDialogError.value = ''
+    return
+  }
+  await submitRegistrationApproval(employee, false, null)
+}
+
+async function confirmRegistrationHeadReplacement () {
+  const replacement = approvalReplacement.value
+  const outgoingLevel = Number(approvalOutgoingLevel.value)
+  if (!replacement || !Number.isInteger(outgoingLevel) || outgoingLevel < 2 || outgoingLevel > 5) {
+    approvalDialogError.value = 'Choose a new rank from Level 2 to Level 5 for the current head.'
+    return
+  }
+  approvalReplacement.value = null
+  await submitRegistrationApproval(replacement.employee, true, outgoingLevel)
+}
+
+async function loadDepartmentManagementRecords () {
+  if (!auth.isAdmin || !supabase) return
+  const { data, error } = await supabase.rpc('northstar_admin_list_department_management')
+  if (error) {
+    approvalError.value = `Could not load department ranks: ${error.message}`
+    return
+  }
+  departmentManagementRecords.value = (data ?? []) as DepartmentManagementRecord[]
 }
 
 async function openSupportInquiry(inquiry: SupportInquiry) {
@@ -362,16 +484,16 @@ function openRejectionDialog(employee: EmployeeRegistrationRecord) {
   rejectionDialogError.value = ''
 }
 
-async function setEmployeeApproval(employee: EmployeeRegistrationRecord, approvalStatus: 'approved' | 'rejected') {
+async function rejectEmployeeRegistration(employee: EmployeeRegistrationRecord) {
   if (!auth.isAdmin || !supabase || !isUuid(employee.user_id) || updatingEmployeeId.value) {
     approvalError.value = 'Only the confirmed Northstar administrator account can update registration approvals.'
     return
   }
-  if (approvalStatus === 'rejected' && !rejectionReason.value.trim()) {
+  if (!rejectionReason.value.trim()) {
     rejectionDialogError.value = 'Enter a rejection reason before confirming.'
     return
   }
-  if (approvalStatus === 'rejected' && rejectionCorrectionFields.value.length === 0) {
+  if (rejectionCorrectionFields.value.length === 0) {
     rejectionDialogError.value = 'Select at least one field the employee must correct.'
     return
   }
@@ -380,9 +502,9 @@ async function setEmployeeApproval(employee: EmployeeRegistrationRecord, approva
   try {
     const { error } = await supabase.rpc('northstar_admin_update_employee_registration_status', {
       p_user_id: employee.user_id,
-      p_approval_status: approvalStatus,
-      p_rejection_reason: approvalStatus === 'rejected' ? rejectionReason.value.trim() : null,
-      p_correction_fields: approvalStatus === 'rejected' ? rejectionCorrectionFields.value : [],
+      p_approval_status: 'rejected',
+      p_rejection_reason: rejectionReason.value.trim(),
+      p_correction_fields: rejectionCorrectionFields.value,
     })
     if (error) {
       approvalError.value = `Could not update employee approval: ${error.message}`
@@ -412,6 +534,7 @@ onMounted(() => {
     const registration = employeeRecords.value.find(employee => employee.user_id === registrationId)
     if (registration) void openEmployeeDetails(registration)
   })
+  void loadDepartmentManagementRecords()
   void loadEmailVerificationRecords()
   void loadSupportInquiries()
   void loadRejectionHistory()
@@ -459,6 +582,7 @@ onMounted(() => {
       </div>
 
       <p v-if="approvalError" class="approval-error" role="alert">{{ approvalError }}</p>
+      <p v-if="registrationApprovalSuccess" class="approval-success" role="status">{{ registrationApprovalSuccess }}</p>
       <p v-else-if="approvalsLoading" class="approval-empty">Loading employee registrations…</p>
 
       <p v-else-if="filteredRegistrations.length === 0" class="approval-empty">
@@ -488,13 +612,13 @@ onMounted(() => {
             <button class="details-button" type="button" @click="openEmployeeDetails(employee)">View Details</button>
 
             <button v-if="employee.approval_status === 'pending'" class="approve-button"
-              :disabled="Boolean(updatingEmployeeId)" type="button" @click="setEmployeeApproval(employee, 'approved')">
+              :disabled="Boolean(updatingEmployeeId)" type="button" @click="openEmployeeDetails(employee)">
               <v-progress-circular
                 v-if="updatingEmployeeId === employee.user_id && rejectEmployee?.user_id !== employee.user_id"
                 aria-hidden="true" indeterminate size="14" width="2" />
               {{ updatingEmployeeId === employee.user_id && rejectEmployee?.user_id !== employee.user_id ? 'Approving…'
                 :
-              'Approve' }}
+              'Review & approve' }}
             </button>
 
             <button v-if="employee.approval_status === 'pending'" class="reject-button"
@@ -610,6 +734,25 @@ onMounted(() => {
             <strong>Rejection reason:</strong> {{ selectedEmployee.rejection_reason }}
           </p>
 
+          <section v-if="selectedEmployee.approval_status === 'pending'" class="registration-rank-review" aria-labelledby="registration-rank-title">
+            <h3 id="registration-rank-title">Approve registration and assign department rank</h3>
+            <p><strong>Assigned department:</strong> {{ selectedEmployeeAssignment?.department_name || selectedEmployee.department || 'No department assigned' }}</p>
+            <label for="registration-department-rank">Department Rank <span aria-hidden="true">*</span></label>
+            <select id="registration-department-rank" v-model="approvalRank" required>
+              <option value="">Choose a rank before approval</option>
+              <option value="1">Level 1 — Department Head</option>
+              <option value="2">Level 2 — Senior Department Member</option>
+              <option value="3">Level 3 — Department Member</option>
+              <option value="4">Level 4 — Junior Department Member</option>
+              <option value="5">Level 5 — Entry-Level Department Member</option>
+            </select>
+            <p v-if="approvalRank === '1'">Level 1 assigns this employee as the head of {{ selectedEmployeeAssignment?.department_name || selectedEmployee.department || 'their assigned department' }}. Replacing an existing head requires confirmation.</p>
+            <p v-if="approvalDialogError" class="approval-error" role="alert">{{ approvalDialogError }}</p>
+            <button class="approve-button" type="button" :disabled="Boolean(updatingEmployeeId) || !approvalRank" @click="approveSelectedRegistration">
+              {{ updatingEmployeeId === selectedEmployee.user_id ? 'Approving and assigning rank…' : 'Approve with selected rank' }}
+            </button>
+          </section>
+
           <div class="detail-grid">
             <section>
               <h3>{{ selectedEmployee.registration_snapshot_is_original ? 'Originally submitted' : 'Available profile snapshot' }}</h3>
@@ -705,7 +848,11 @@ onMounted(() => {
                 </div>
                 <div>
                   <dt>Department</dt>
-                  <dd>{{ selectedEmployee.current_department || '—' }}</dd>
+                  <dd>{{ selectedEmployeeAssignment?.department_name || selectedEmployee.current_department || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Department rank</dt>
+                  <dd>{{ departmentRankLabel(selectedEmployeeAssignment?.department_level) }}</dd>
                 </div>
                 <div>
                   <dt>Job title</dt>
@@ -739,6 +886,27 @@ onMounted(() => {
             </section>
           </div>
         </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog :model-value="Boolean(approvalReplacement)" max-width="520" @update:model-value="!$event && (approvalReplacement = null)">
+      <v-card v-if="approvalReplacement" class="employee-detail-dialog">
+        <v-card-title>Confirm department head replacement</v-card-title>
+        <v-card-text>
+          <p><strong>Department:</strong> {{ approvalReplacement.departmentName }}</p>
+          <p><strong>Current head:</strong> {{ approvalReplacement.currentHead?.display_name || 'Name unavailable' }}</p>
+          <p><strong>Proposed replacement:</strong> {{ approvalReplacement.employee.first_name }} {{ approvalReplacement.employee.last_name }}</p>
+          <label class="rejection-label" for="outgoing-head-rank">New rank for the current head <span aria-hidden="true">*</span></label>
+          <select id="outgoing-head-rank" v-model="approvalOutgoingLevel" required>
+            <option value="">Choose a rank</option>
+            <option value="2">Level 2 — Senior Department Member</option>
+            <option value="3">Level 3 — Department Member</option>
+            <option value="4">Level 4 — Junior Department Member</option>
+            <option value="5">Level 5 — Entry-Level Department Member</option>
+          </select>
+          <p v-if="approvalDialogError" class="approval-error" role="alert">{{ approvalDialogError }}</p>
+        </v-card-text>
+        <v-card-actions><v-spacer /><v-btn variant="text" @click="approvalReplacement = null">Cancel</v-btn><v-btn color="primary" :disabled="Boolean(updatingEmployeeId) || !approvalOutgoingLevel" @click="confirmRegistrationHeadReplacement">Confirm replacement</v-btn></v-card-actions>
       </v-card>
     </v-dialog>
 
@@ -776,7 +944,7 @@ onMounted(() => {
 
           <v-btn color="error" :disabled="!rejectionReason.trim() || rejectionCorrectionFields.length === 0"
             :loading="updatingEmployeeId === rejectEmployee.user_id"
-            @click="setEmployeeApproval(rejectEmployee, 'rejected')">{{ updatingEmployeeId === rejectEmployee.user_id ?
+            @click="rejectEmployeeRegistration(rejectEmployee)">{{ updatingEmployeeId === rejectEmployee.user_id ?
               'Rejecting…' : 'Confirm rejection' }}</v-btn>
         </v-card-actions>
       </v-card>
@@ -928,6 +1096,16 @@ onMounted(() => {
     </v-dialog>
 
     <section class="admin-links">
+      <router-link class="surface-card admin-link-card" to="/department">
+        <span class="admin-link-icon"><v-icon icon="mdi-domain" /></span>
+        <span><strong>Department collaboration</strong><small>Review announcements, events, resources, and incidents by department</small></span>
+        <v-icon icon="mdi-arrow-right" size="17" />
+      </router-link>
+      <router-link class="surface-card admin-link-card" to="/admin/departments">
+        <span class="admin-link-icon"><v-icon icon="mdi-account-group-outline" /></span>
+        <span><strong>Department hierarchy</strong><small>Assign department levels and heads</small></span>
+        <v-icon icon="mdi-arrow-right" size="17" />
+      </router-link>
       <router-link class="surface-card admin-link-card" to="/admin/events">
         <span><v-icon icon="mdi-calendar-month-outline" /></span>
         <strong>Event management</strong>
@@ -993,6 +1171,7 @@ onMounted(() => {
   color: var(--ns-text-829187, #829187);
   font-size: 10px;
 }
+.approval-success { color: #23724a; font-size: 11px; }
 
 .approval-error {
   color: var(--ns-text-a34c39, #a34c39);
@@ -1183,6 +1362,31 @@ onMounted(() => {
   gap: 5px;
   border-bottom: 1px solid var(--ns-border-edf0e9, #edf0e9);
   padding-bottom: 14px;
+}
+
+.registration-rank-review {
+  display: grid;
+  gap: 9px;
+  margin: 16px 0;
+  border: 1px solid var(--ns-border-e3e9dc, #e3e9dc);
+  border-left: 3px solid #2877c7;
+  border-radius: 7px;
+  padding: 14px;
+  background: var(--ns-bg-f8f9f6, #f8f9f6);
+}
+.registration-rank-review h3 { margin: 0; font-size: 14px; }
+.registration-rank-review p { margin: 0; color: var(--ns-text-53665a, #53665a); font-size: 11px; }
+.registration-rank-review label { color: var(--ns-text-53665a, #53665a); font-size: 11px; font-weight: 700; }
+.registration-rank-review select,
+#outgoing-head-rank {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--ns-border-e3e9dc, #e3e9dc);
+  border-radius: 5px;
+  padding: 8px 10px;
+  background: white;
+  color: var(--ns-text-primary, #18352d);
+  font: inherit;
 }
 
 .employee-photo-wrap {
