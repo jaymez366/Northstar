@@ -105,6 +105,12 @@ const severityDisplayLabels: Record<IncidentSeverity, string> = {
 const isDesignatedAdmin = computed(() => auth.isAdmin && auth.emailVerified)
 const isDepartmentHead = computed(() => !isDesignatedAdmin.value && auth.profile.departmentLevel === 1)
 const canReportIncident = computed(() => !isDesignatedAdmin.value && auth.canAccessEmployeeWorkspace && auth.profile.departmentLevel !== null)
+const canCreateIncident = computed(() => isDesignatedAdmin.value || canReportIncident.value)
+function canManageIncident (incident: Incident) {
+  if (incident.deleted_at) return false
+  if (isDesignatedAdmin.value) return incident.department_id === null
+  return isDepartmentHead.value && incident.department_id === auth.profile.departmentId
+}
 const filteredIncidents = computed(() => {
   const query = search.value.trim().toLowerCase()
   if (!query) return incidents.value
@@ -340,7 +346,7 @@ async function loadResponders() {
 }
 
 async function submitIncident() {
-  if (!canReportIncident.value || !supabase || submitting.value) return
+  if (!canCreateIncident.value || !supabase || submitting.value) return
   const values = {
     title: reportForm.value.title.trim(),
     description: reportForm.value.description.trim(),
@@ -358,7 +364,7 @@ async function submitIncident() {
   actionError.value = ''
   successMessage.value = ''
   try {
-    const { data, error } = await supabase.rpc('northstar_department_report_incident', {
+    const { data, error } = await supabase.rpc(isDesignatedAdmin.value ? 'northstar_admin_report_company_incident' : 'northstar_department_report_incident', {
       p_title: values.title,
       p_description: values.description,
       p_category: values.category,
@@ -368,7 +374,9 @@ async function submitIncident() {
     if (error) throw error
     if (typeof data !== 'string') throw new Error('Supabase did not return the new incident ID.')
     reportForm.value = { title: '', description: '', category: '', severity: '', location: '' }
-    successMessage.value = 'Your incident report was submitted.'
+    successMessage.value = isDesignatedAdmin.value
+      ? 'Organization-wide incident created.'
+      : 'Your incident report was submitted.'
     await loadIncidents()
   } catch (error) {
     formError.value = error instanceof Error ? error.message : 'Could not submit the incident report. Please try again.'
@@ -435,7 +443,7 @@ async function saveReporterStatus(incident: Incident) {
 }
 
 async function saveIncidentUpdate(incident: Incident) {
-  if ((!isDesignatedAdmin.value && !isDepartmentHead.value) || !supabase || savingIncidentId.value) return
+  if (!canManageIncident(incident) || !supabase || savingIncidentId.value) return
   const draft = draftFor(incident)
   const update = draft.update.trim()
   if (!update) {
@@ -550,8 +558,8 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="canReportIncident" class="section-card surface-card report-section" aria-labelledby="report-incident-heading">
-      <div class="section-heading"><div><p class="eyebrow">EMPLOYEE REPORTING</p><h2 id="report-incident-heading">Report an incident</h2><p class="section-description">Incident reports are tracked separately from support inquiries. For non-emergency questions or professional guidance, <router-link to="/start-conversation">Talk to an Expert</router-link>.</p></div></div>
+    <section v-if="canCreateIncident" class="section-card surface-card report-section" aria-labelledby="report-incident-heading">
+      <div class="section-heading"><div><p class="eyebrow">{{ isDesignatedAdmin ? 'ORGANIZATION-WIDE MANAGEMENT' : 'EMPLOYEE REPORTING' }}</p><h2 id="report-incident-heading">{{ isDesignatedAdmin ? 'Create an organization-wide incident' : 'Report an incident' }}</h2><p class="section-description">{{ isDesignatedAdmin ? 'This incident will be recorded as company-wide and will not be assigned to a department.' : 'Incident reports are tracked separately from support inquiries. For non-emergency questions or professional guidance, ' }}<router-link v-if="!isDesignatedAdmin" to="/start-conversation">Talk to an Expert</router-link></p></div></div>
       <form class="incident-form" @submit.prevent="submitIncident">
         <label class="form-field"><span>Incident title</span><input v-model="reportForm.title" required minlength="5" maxlength="180" autocomplete="off" placeholder="Briefly describe the incident"></label>
         <label class="form-field"><span>Category</span><select v-model="reportForm.category" required><option disabled value="">Select category</option><option v-for="category in reportCategories" :key="category.value" :value="category.value">{{ category.label }}</option></select></label>
@@ -560,7 +568,7 @@ onUnmounted(() => {
         <label class="form-field full-field"><span>Description</span><textarea v-model="reportForm.description" required minlength="10" maxlength="10000" rows="4" placeholder="Describe what happened and any immediate safety concerns"></textarea></label>
         <p v-if="formError" class="form-message error-message" role="alert">{{ formError }}</p>
         <p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p>
-        <div class="form-actions"><span>Submitted reports are visible according to Northstar incident access rules.</span><button class="submit-button" :disabled="submitting" type="submit">{{ submitting ? 'Submitting…' : 'Submit incident report' }}</button></div>
+        <div class="form-actions"><span>{{ isDesignatedAdmin ? 'The incident will have no department assignment.' : 'Submitted reports are visible according to Northstar incident access rules.' }}</span><button class="submit-button" :disabled="submitting" type="submit">{{ submitting ? 'Submitting…' : isDesignatedAdmin ? 'Create company-wide incident' : 'Submit incident report' }}</button></div>
       </form>
     </section>
 
@@ -669,7 +677,7 @@ onUnmounted(() => {
           </tbody>
           <tbody v-for="incident in filteredIncidents" v-else-if="!loading && !loadError" :key="incident.id">
             <tr>
-              <td><strong class="incident-title">{{ incident.title }}</strong><span v-if="incident.deleted_at" class="deleted-incident-label">Deleted report · retained for audit</span><small class="incident-description-preview">{{ incident.description }}</small></td>
+              <td><strong class="incident-title">{{ incident.title }}</strong><span v-if="isDesignatedAdmin" class="deleted-incident-label">{{ incident.department_id ? 'Department incident' : 'Company-wide incident' }}</span><span v-if="incident.deleted_at" class="deleted-incident-label">Deleted report · retained for audit</span><small class="incident-description-preview">{{ incident.description }}</small></td>
               <td>{{ incident.category.replaceAll('_', ' ') }}</td>
               <td>{{ incident.location }}</td>
               <td><span class="severity-pill" :class="incident.severity">{{ severityLabel(incident.severity) }}</span></td>
@@ -706,7 +714,21 @@ onUnmounted(() => {
                       @click="saveReporterStatus(incident)"
                     >{{ savingReporterStatusId === incident.id ? 'Saving…' : 'Update my incident status' }}</button>
                   </section>
-                  <section v-if="(isDesignatedAdmin || isDepartmentHead) && !incident.deleted_at" class="admin-update-panel"><h3>Administrator incident controls</h3><label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option v-if="isDesignatedAdmin" value="admin">Private admin note</option></select></label><p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p><div class="admin-fields"><label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabel(severity) }}</option></select></label><label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ `${responder.first_name} ${responder.last_name}`.trim() }}</option></select></label></div><label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label><label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note (required)' : 'Update for the selected audience (required)' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Enter the message before saving"></textarea></label><p class="status-update-hint">An update message is required to save. If validation fails, your selected status and other changes will remain selected.</p><p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p><button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button></section>
+<section v-if="canManageIncident(incident)" class="admin-update-panel">
+                    <h3>{{ isDesignatedAdmin ? 'Organization-wide incident controls' : 'Department head incident controls' }}</h3>
+                    <label class="form-field"><span>Update visibility</span><select v-model="draftFor(incident).visibility"><option value="reporter">Reporter update</option><option value="response_team">Response team update</option><option v-if="isDesignatedAdmin" value="admin">Private admin note</option></select></label>
+                    <p v-if="draftFor(incident).visibility === 'admin'" class="private-note-hint">Private notes are visible only to the designated administrator and do not notify employees.</p>
+                    <div class="admin-fields">
+                      <label class="form-field"><span>Status</span><select v-model="draftFor(incident).status" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="status in statusOptions" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
+                      <label class="form-field"><span>Severity</span><select v-model="draftFor(incident).severity" :disabled="draftFor(incident).visibility === 'admin'"><option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabel(severity) }}</option></select></label>
+                      <label class="form-field"><span>Assigned responder</span><select v-model="draftFor(incident).assignedResponder" :disabled="draftFor(incident).visibility === 'admin'"><option value="">Unassigned</option><option v-for="responder in responders" :key="responder.user_id" :value="responder.user_id">{{ responder.first_name + ' ' + responder.last_name }}</option></select></label>
+                    </div>
+                    <label class="form-field"><span>Resolution details</span><textarea v-model="draftFor(incident).resolutionDetails" :disabled="draftFor(incident).visibility === 'admin'" maxlength="10000" rows="2" placeholder="Required when resolving or closing"></textarea></label>
+                    <label class="form-field"><span>{{ draftFor(incident).visibility === 'admin' ? 'Private administrator note (required)' : 'Update for the selected audience (required)' }}</span><textarea v-model="draftFor(incident).update" maxlength="10000" rows="3" placeholder="Enter the message before saving"></textarea></label>
+                    <p class="status-update-hint">An update message is required to save. If validation fails, your selected status and other changes will remain selected.</p>
+                    <p v-if="actionError" class="form-message error-message" role="alert">{{ actionError }}</p><p v-if="successMessage" class="form-message success-message" role="status">{{ successMessage }}</p>
+                    <button class="submit-button" :disabled="savingIncidentId === incident.id" type="button" @click="saveIncidentUpdate(incident)">{{ savingIncidentId === incident.id ? 'Saving…' : 'Save update' }}</button>
+                  </section>
                 </div>
               </td>
             </tr>

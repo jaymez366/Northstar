@@ -86,7 +86,9 @@ async function save (row: Assignment) {
   const { error: rpcError } = await supabase.rpc('northstar_admin_assign_department_level', {
     p_user_id: row.user_id,
     p_department_id: departmentId,
-    p_department_level: level,
+    // Send the validated rank as decimal text for the declared smallint RPC
+    // parameter; preserve SQL NULL when clearing an assignment.
+    p_department_level: level === null ? null : String(level),
   })
   savingId.value = ''
   if (rpcError) {
@@ -128,7 +130,7 @@ async function confirmHeadChange () {
   const { error: rpcError } = await supabase.rpc('northstar_admin_set_department_head', {
     p_department_id: change.department.id,
     p_user_id: change.proposedHead.user_id,
-    p_outgoing_department_level: outgoingLevel,
+    p_outgoing_department_level: outgoingLevel === null ? null : String(outgoingLevel),
   })
   savingId.value = ''
   if (rpcError) {

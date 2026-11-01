@@ -3,12 +3,17 @@
   import NorthstarBackButton from '@/components/NorthstarBackButton.vue'
   import { useAuthStore } from '@/stores/auth'
   import { type Announcement, useWorkspaceStore } from '@/stores/workspace'
+  import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
 
   const auth = useAuthStore()
   const workspace = useWorkspaceStore()
   const search = ref('')
   const priority = ref('All priorities')
   const announcementLoadError = ref('')
+  const adminDraft = ref({ title: '', content: '', priority: 'normal' })
+  const adminCreateError = ref('')
+  const adminCreateSuccess = ref('')
+  const adminCreating = ref(false)
   const selected = ref<Announcement | null>(null)
   const isDialogOpen = computed({
     get: () => selected.value !== null,
@@ -34,6 +39,37 @@
     && auth.profile.role === 'manager'
     && auth.canAccessEmployeeWorkspace)
 
+  async function publishCompanyAnnouncement () {
+    const title = adminDraft.value.title.trim()
+    const content = adminDraft.value.content.trim()
+    if (!auth.isAdmin || !auth.emailVerified || !auth.userId || !supabase || !isSupabaseConfigured || adminCreating.value) return
+    if (!title || title.length > 180 || !content || content.length > 10000
+        || !['normal', 'important', 'urgent'].includes(adminDraft.value.priority)) {
+      adminCreateError.value = 'Enter a title and announcement text, and choose a valid priority.'
+      return
+    }
+
+    adminCreating.value = true
+    adminCreateError.value = ''
+    adminCreateSuccess.value = ''
+    const { error } = await supabase.from('announcements').insert({
+      title,
+      content,
+      priority: adminDraft.value.priority,
+      author_id: auth.userId,
+      department_id: null,
+    })
+    adminCreating.value = false
+    if (error) {
+      adminCreateError.value = `Could not publish company-wide announcement: ${error.message}`
+      return
+    }
+    adminDraft.value = { title: '', content: '', priority: 'normal' }
+    adminCreateSuccess.value = 'Company-wide announcement published.'
+    const refreshError = await workspace.loadAnnouncements()
+    if (refreshError) announcementLoadError.value = `Could not refresh announcements: ${refreshError}`
+  }
+
   onMounted(async () => {
     if (!auth.isAdmin) return
     const error = await workspace.loadAnnouncements()
@@ -52,6 +88,19 @@
       <div><p class="eyebrow">COMPANY-WIDE UPDATES</p><h1>Announcements</h1><p>Company news and important updates, all in one place.</p></div>
       <router-link v-if="canCreateAnnouncements" class="primary-action" to="/employee-communication"><v-icon icon="mdi-plus" size="17" /> Create announcement</router-link>
     </header>
+
+    <section v-if="auth.isAdmin" class="admin-create-panel surface-card" aria-labelledby="admin-announcement-heading">
+      <h2 id="admin-announcement-heading">Publish an organization-wide announcement</h2>
+      <p>New announcements are published for the whole organization and are not assigned to a department.</p>
+      <form class="admin-create-form" @submit.prevent="publishCompanyAnnouncement">
+        <label>Title<input v-model="adminDraft.title" maxlength="180" required></label>
+        <label>Priority<select v-model="adminDraft.priority"><option value="normal">Normal</option><option value="important">Important</option><option value="urgent">Urgent</option></select></label>
+        <label class="wide">Announcement<textarea v-model="adminDraft.content" maxlength="10000" rows="3" required /></label>
+        <p v-if="adminCreateError" class="form-error" role="alert">{{ adminCreateError }}</p>
+        <p v-if="adminCreateSuccess" class="form-success" role="status">{{ adminCreateSuccess }}</p>
+        <button class="primary-action" :disabled="adminCreating" type="submit">{{ adminCreating ? 'Publishing…' : 'Publish announcement' }}</button>
+      </form>
+    </section>
 
     <div class="toolbar">
       <input v-model="search" aria-label="Search announcements" class="field-control" placeholder="Search announcements">
@@ -98,6 +147,16 @@
 </template>
 
 <style scoped>
+.admin-create-panel { display: grid; gap: 10px; margin-bottom: 18px; padding: 18px; }
+.admin-create-panel h2, .admin-create-panel p { margin: 0; }
+.admin-create-panel h2 { font-size: 16px; }
+.admin-create-panel > p { color: var(--ns-text-829187, #829187); font-size: 11px; }
+.admin-create-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr); gap: 10px; }
+.admin-create-form label { display: grid; gap: 5px; color: var(--ns-text-secondary, #60776b); font-size: 11px; }
+.admin-create-form input, .admin-create-form select, .admin-create-form textarea { width: 100%; border: 1px solid var(--ns-border, #dce4d8); border-radius: 5px; padding: 9px; background: #fff; color: var(--ns-text-primary, #18352d); font: inherit; }
+.admin-create-form .wide, .admin-create-form .form-error, .admin-create-form .form-success { grid-column: 1 / -1; }
+.admin-create-form .primary-action { justify-self: start; }
+@media (max-width: 640px) { .admin-create-form { grid-template-columns: 1fr; } .admin-create-form .wide, .admin-create-form .form-error, .admin-create-form .form-success { grid-column: auto; } }
 .result-count { margin-left: auto; color: var(--ns-text-829187, #829187); font-size: 10px; }
 .announcement-list { display: grid; gap: 12px; }
 .announcement-card { padding: 20px 22px 17px; }

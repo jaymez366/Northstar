@@ -483,7 +483,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return existing?.id ?? ''
     }
     backendError.value = ''
-    const { data, error } = await supabase.rpc('create_conversation', { p_member_ids: [employeeId] })
+    const { data, error } = await supabase.rpc('northstar_create_direct_conversation', { p_member_ids: [employeeId] })
     if (error) {
       backendError.value = `Could not start conversation: ${error.message}`
       console.error(backendError.value, error)

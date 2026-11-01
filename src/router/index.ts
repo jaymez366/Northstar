@@ -75,7 +75,7 @@ const router = createRouter({
     {
       path: '/department',
       component: DepartmentCollaboration,
-      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowDesignatedAdmin: true },
+      meta: { requiresAuth: true, requiresEmployeeWorkspace: true, allowDesignatedAdmin: true, adminReadable: true },
     },
     {
       path: '/events',

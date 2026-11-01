@@ -360,9 +360,9 @@ async function submitRegistrationApproval (employee: EmployeeRegistrationRecord,
   try {
     const { error } = await supabase.rpc('northstar_admin_approve_employee_with_department_level', {
       p_user_id: employee.user_id,
-      p_department_level: level,
+      p_department_level: String(level),
       p_replace_current_head: replaceCurrentHead,
-      p_outgoing_department_level: outgoingLevel,
+      p_outgoing_department_level: outgoingLevel === null ? null : String(outgoingLevel),
     })
     if (error) {
       approvalDialogError.value = `Could not approve registration and assign its department rank: ${error.message}`
@@ -1098,12 +1098,12 @@ onMounted(() => {
     <section class="admin-links">
       <router-link class="surface-card admin-link-card" to="/department">
         <span class="admin-link-icon"><v-icon icon="mdi-domain" /></span>
-        <span><strong>Department collaboration</strong><small>Review announcements, events, resources, and incidents by department</small></span>
+        <span><strong>Department collaboration</strong></span>
         <v-icon icon="mdi-arrow-right" size="17" />
       </router-link>
       <router-link class="surface-card admin-link-card" to="/admin/departments">
         <span class="admin-link-icon"><v-icon icon="mdi-account-group-outline" /></span>
-        <span><strong>Department hierarchy</strong><small>Assign department levels and heads</small></span>
+        <span><strong>Department hierarchy</strong></span>
         <v-icon icon="mdi-arrow-right" size="17" />
       </router-link>
       <router-link class="surface-card admin-link-card" to="/admin/events">
