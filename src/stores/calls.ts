@@ -818,26 +818,74 @@ export const useCallsStore = defineStore('northstar-calls', () => {
 
   async function getRtcConfiguration (): Promise<RTCConfiguration> {
     const stunUrls = (import.meta.env.VITE_NORTHSTAR_STUN_URLS ?? '').split(',').map((url: string) => url.trim()).filter(Boolean)
-    const turnUrls = (import.meta.env.VITE_NORTHSTAR_TURN_URLS ?? '').split(',').map((url: string) => url.trim()).filter(Boolean)
-    const servers: RTCIceServer[] = []
-    if (stunUrls.length) servers.push({ urls: stunUrls })
-    if (turnUrls.length) {
-      const credentialsUrl = import.meta.env.VITE_NORTHSTAR_TURN_CREDENTIALS_URL?.trim()
-      if (!credentialsUrl) throw new Error('TURN URLs are configured but no short-lived TURN credential endpoint is configured.')
-      const endpoint = new URL(credentialsUrl)
-      if (endpoint.protocol !== 'https:' && endpoint.hostname !== 'localhost') throw new Error('The TURN credential endpoint must use HTTPS.')
-      const { data, error: sessionError } = await supabase!.auth.getSession()
-      if (sessionError || !data.session?.access_token) throw new Error('Sign in again to obtain temporary call credentials.')
-      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${data.session.access_token}` } })
-      if (!response.ok) throw new Error(`Temporary TURN credentials could not be loaded (${response.status}).`)
-      const credentials = await response.json() as { username?: unknown, credential?: unknown, expires_at?: unknown }
-      if (typeof credentials.username !== 'string' || typeof credentials.credential !== 'string'
-          || typeof credentials.expires_at !== 'string' || Date.parse(credentials.expires_at) <= Date.now() + 15000) {
-        throw new Error('The TURN credential endpoint returned invalid or expiring credentials.')
+    const configuredApiBase = import.meta.env.VITE_NORTHSTAR_API_BASE_URL?.trim()
+    let endpoint = '/api/v1/calls/ice-servers'
+    if (configuredApiBase) {
+      let apiBase: URL
+      try {
+        apiBase = new URL(configuredApiBase)
+      } catch {
+        throw new Error('The Northstar API URL is invalid.')
       }
-      servers.push({ urls: turnUrls, username: credentials.username, credential: credentials.credential })
+      const localHttpHost = ['localhost', '127.0.0.1', '[::1]'].includes(apiBase.hostname)
+      if ((apiBase.protocol !== 'https:' && !(apiBase.protocol === 'http:' && localHttpHost))
+          || apiBase.username || apiBase.password || apiBase.pathname !== '/' || apiBase.search || apiBase.hash) {
+        throw new Error('The Northstar API URL must be a secure API origin.')
+      }
+      endpoint = new URL('/api/v1/calls/ice-servers', apiBase).toString()
     }
-    if (!servers.length) throw new Error('Configure VITE_NORTHSTAR_STUN_URLS before placing calls.')
+
+    const { data, error: sessionError } = await supabase!.auth.getSession()
+    if (sessionError || !data.session?.access_token) throw new Error('Sign in again to obtain temporary call credentials.')
+
+    let response: Response
+    try {
+      response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${data.session.access_token}` },
+        cache: 'no-store',
+        credentials: 'omit',
+      })
+    } catch {
+      throw new Error('Temporary call credentials could not be loaded.')
+    }
+    if (!response.ok) throw new Error(`Temporary call credentials could not be loaded (${response.status}).`)
+
+    let result: { ice_servers?: unknown, expires_at?: unknown }
+    try {
+      result = await response.json() as { ice_servers?: unknown, expires_at?: unknown }
+    } catch {
+      throw new Error('The call credential service returned an invalid response.')
+    }
+    if (!Array.isArray(result.ice_servers) || result.ice_servers.length === 0
+        || result.ice_servers.length > 32 || typeof result.expires_at !== 'string'
+        || !Number.isFinite(Date.parse(result.expires_at)) || Date.parse(result.expires_at) <= Date.now() + 15000) {
+      throw new Error('The call credential service returned invalid or expiring credentials.')
+    }
+
+    const servers: RTCIceServer[] = []
+    for (const item of result.ice_servers) {
+      if (!item || typeof item !== 'object') throw new Error('The call credential service returned invalid ICE servers.')
+      const server = item as { urls?: unknown, username?: unknown, credential?: unknown }
+      const urls = typeof server.urls === 'string'
+        ? [server.urls]
+        : Array.isArray(server.urls) ? server.urls : []
+      if (!urls.length || urls.some(url => typeof url !== 'string' || !/^(stun|stuns|turn|turns):/i.test(url))) {
+        throw new Error('The call credential service returned invalid ICE server URLs.')
+      }
+      const hasTurn = urls.some(url => /^(turn|turns):/i.test(url as string))
+      if (hasTurn && (typeof server.username !== 'string' || !server.username
+          || typeof server.credential !== 'string' || !server.credential)) {
+        throw new Error('The call credential service returned incomplete TURN credentials.')
+      }
+      servers.push({
+        urls: server.urls as string | string[],
+        ...(hasTurn ? { username: server.username as string, credential: server.credential as string } : {}),
+      })
+    }
+    if (!servers.some(server => (Array.isArray(server.urls) ? server.urls : [server.urls]).some(url => /^(turn|turns):/i.test(url)))) {
+      throw new Error('The call credential service did not return a TURN server.')
+    }
+    if (stunUrls.length) servers.unshift({ urls: stunUrls })
     return { iceServers: servers, iceCandidatePoolSize: 4 }
   }
 

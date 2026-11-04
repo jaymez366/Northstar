@@ -28,3 +28,15 @@ coverage
 *.sw?
 
 *.tsbuildinfo
+
+# Python backend
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+backend/.env
+
+*.egg-info/

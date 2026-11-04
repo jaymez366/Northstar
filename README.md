@@ -64,17 +64,43 @@ npm run build
 
 ## Employee call configuration
 
-Voice and video calls use browser WebRTC and the private Supabase call-signaling
-RPCs described in the application change review. Configure `VITE_NORTHSTAR_STUN_URLS`
-as a comma-separated list of STUN URIs. Production deployments also need
-`VITE_NORTHSTAR_TURN_URLS` and `VITE_NORTHSTAR_TURN_CREDENTIALS_URL`. The HTTPS
-credential endpoint must authenticate the Supabase bearer token and return short-lived
-`{ "username": "...", "credential": "...", "expires_at": "ISO-8601" }` TURN credentials.
-Do not put TURN passwords or long-lived credentials in Vite variables; Vite variables
-are public in the browser bundle. Set the three values in local untracked environment
-configuration and Cloudflare Pages build variables. The current client accepts short-lived
-credentials in memory only. A real TURN service and two-user connectivity test are
-required before production call reliability can be claimed.
+Voice and video calls use browser WebRTC and Supabase call signalling. Optional
+`VITE_NORTHSTAR_STUN_URLS` may add STUN URIs. The client obtains Twilio's short-lived
+ICE server configuration from authenticated `GET /api/v1/calls/ice-servers`; it gets
+the current Supabase bearer token from the existing Auth session. During local Vite
+development, `/api` is proxied to FastAPI on port 8000. If the frontend and API use
+different production origins, set the public `VITE_NORTHSTAR_API_BASE_URL` to the
+HTTPS API origin. Twilio permanent credentials belong only in the backend secret
+environment (`TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`), never in
+Vite variables. The client keeps returned short-lived credentials in memory for the
+call; verify real two-user connectivity with configured Twilio credentials before
+claiming production call reliability.
+
+## FastAPI backend
+
+The foundation API lives in `backend/` and runs separately from the Vue application.
+Use Python 3.11 or newer:
+
+```bash
+cd backend
+python -m venv .venv
+# Windows PowerShell: .\.venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
+python -m pip install -e ".[dev]"
+Copy-Item .env.example .env  # Windows PowerShell; use `cp .env.example .env` elsewhere
+uvicorn app.main:app --reload
+```
+
+Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and a comma-separated list of explicit
+`CORS_ORIGINS` in `backend/.env`. Health and process readiness are `/api/v1/health`
+and `/api/v1/ready`; neither probes Supabase. Interactive API docs are at `/docs`
+while running locally. Run backend checks with
+`pytest` from `backend/`. Do not put server secrets in Vite variables; this backend
+foundation uses the public Supabase anon key and forwards the verified user's bearer
+token so Supabase RLS continues to apply.
+
+See [backend/README.md](backend/README.md) for configuration security, request
+limits, and the current Supabase/FastAPI implementation map.
 
 ## 🧪 Available Scripts
 

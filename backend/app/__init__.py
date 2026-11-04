@@ -1,0 +1,1 @@
+"""NorthStar FastAPI application package."""
