@@ -16,6 +16,8 @@ def valid_settings(**overrides):
         "twilio_api_key": None,
         "twilio_api_secret": None,
     }
+    if overrides.get("environment") == "production" and "rate_limit_redis_url" not in overrides:
+        values["rate_limit_redis_url"] = "redis://localhost:6379/0"
     return Settings(**(values | overrides))
 
 
@@ -63,7 +65,81 @@ def test_production_accepts_explicit_https_origin():
     assert settings.cors_origins == ["https://northstar.example"]
 
 
-@pytest.mark.parametrize("origin", ["*", "https://northstar.example/path", "https://user@northstar.example"])
+def test_production_accepts_preview_and_production_https_origins():
+    origins = [
+        "https://northstar-backend-developmen.northstar-1k1.pages.dev",
+        "https://northstar-1k1.pages.dev",
+    ]
+    settings = valid_settings(
+        environment="production",
+        cors_origins=origins,
+        rate_limit_redis_url="redis://localhost:6379/0",
+    )
+    assert settings.cors_origins == origins
+
+
+def test_production_requires_shared_rate_limit_store():
+    with pytest.raises(ValidationError, match="RATE_LIMIT_REDIS_URL is required"):
+        valid_settings(environment="production", rate_limit_redis_url=None)
+
+
+@pytest.mark.parametrize("url", ["http://redis.example", "not-a-redis-url", "redis:///missing-host"])
+def test_rate_limit_store_url_must_be_valid_redis_url(url):
+    with pytest.raises(ValidationError, match="valid redis:// or rediss:// URL"):
+        valid_settings(rate_limit_redis_url=url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://redis.internal:6379/0",
+        "rediss://user:pass@cache.example:6380/2?ssl_cert_reqs=required",
+        "redis://cache.example",
+    ],
+)
+def test_rate_limit_store_accepts_valid_urls_and_authentication(url):
+    settings = valid_settings(rate_limit_redis_url=url)
+    assert settings.rate_limit_redis_url.get_secret_value() == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://cache.example:notaport/0",
+        "redis://cache.example:/0",
+        "redis://cache.example:0/0",
+        "redis://cache.example:65536/0",
+        "redis://cache.example/-1",
+        "redis://cache.example/not-a-db",
+        "redis:///0",
+        "redis://bad host/0",
+        "redis://cache.example/0#fragment",
+        "redis://[not-an-ipv6-address]/0",
+        "ftp://cache.example/0",
+    ],
+)
+def test_rate_limit_store_rejects_malformed_urls(url):
+    with pytest.raises(ValidationError, match="valid redis:// or rediss:// URL"):
+        valid_settings(rate_limit_redis_url=url)
+
+
+def test_rate_limit_url_validation_error_does_not_reveal_password():
+    password = "not-a-real-password-for-test"
+    with pytest.raises(ValidationError) as error:
+        valid_settings(rate_limit_redis_url=f"redis://user:{password}@cache.example:bad/0")
+    assert password not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "*",
+        "https://*.pages.dev",
+        "https://preview.*.pages.dev",
+        "https://northstar.example/path",
+        "https://user@northstar.example",
+    ],
+)
 def test_settings_reject_non_origin_cors_entries(origin):
     with pytest.raises(ValidationError):
         valid_settings(cors_origins=[origin])

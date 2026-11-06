@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from app.core.config import Settings, get_settings
 from app.schemas.calls import IceServersResponse
 from app.services.auth import VerifiedUser, require_user
+from app.services.rate_limit import require_ice_server_rate_limit
 from app.services.twilio_turn import TwilioTurnUnavailable, create_turn_configuration
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/calls")
 async def get_ice_servers(
     response: Response,
     _user: VerifiedUser = Depends(require_user),
+    _rate_limit: None = Depends(require_ice_server_rate_limit),
     settings: Settings = Depends(get_settings),
 ) -> IceServersResponse:
     """Return fresh Twilio ICE servers to an authenticated Supabase user."""

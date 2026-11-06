@@ -143,40 +143,42 @@
           v-for="link in primaryLinks"
           :key="link.to"
           active-class="active"
+          :aria-label="link.title"
           :to="link.to"
+          :title="link.title"
           @click="closeMobileNavigation"
         >
           <v-icon :icon="link.icon" size="19" />
           <span>{{ link.title }}</span>
         </router-link>
 
-        <router-link active-class="active" to="/notifications" @click="closeMobileNavigation">
+        <router-link active-class="active" aria-label="Notifications" title="Notifications" to="/notifications" @click="closeMobileNavigation">
           <v-icon icon="mdi-bell-outline" size="19" />
           <span>Notifications</span>
           <span v-if="workspace.unreadNotifications" class="unread-count">{{ workspace.unreadNotifications }}</span>
         </router-link>
         <div class="sidebar-bottom">
-          <router-link active-class="active" to="/profile" @click="closeMobileNavigation">
+          <router-link active-class="active" aria-label="Profile" title="Profile" to="/profile" @click="closeMobileNavigation">
             <v-icon icon="mdi-account-circle-outline" size="19" />
             <span>Profile</span>
           </router-link>
 
-          <router-link active-class="active" to="/settings" @click="closeMobileNavigation">
+          <router-link active-class="active" aria-label="Settings" title="Settings" to="/settings" @click="closeMobileNavigation">
             <v-icon icon="mdi-cog-outline" size="19" />
             <span>Settings</span>
           </router-link>
 
-        <router-link v-if="!auth.isAdmin" active-class="active" to="/rejection-history" @click="closeMobileNavigation">
+        <router-link v-if="!auth.isAdmin" active-class="active" aria-label="Registration history" title="Registration history" to="/rejection-history" @click="closeMobileNavigation">
           <v-icon icon="mdi-history" size="19" />
           <span>Registration history</span>
         </router-link>
 
-          <router-link v-if="auth.isAdmin" active-class="active" to="/admin" @click="closeMobileNavigation">
+          <router-link v-if="auth.isAdmin" active-class="active" aria-label="Admin dashboard" title="Admin dashboard" to="/admin" @click="closeMobileNavigation">
             <v-icon icon="mdi-shield-account-outline" size="19" />
             <span>Admin dashboard</span>
           </router-link>
 
-          <button class="logout-button" type="button" @click="logout">
+          <button aria-label="Sign out" class="logout-button" title="Sign out" type="button" @click="logout">
             <v-icon icon="mdi-logout" size="19" />
             <span>Sign out</span>
           </button>
@@ -471,6 +473,98 @@ body { min-width: 320px; margin: 0; background: var(--ns-bg-f3f5ef, #f3f5ef); }
   .workspace-column { margin-left: 190px; }
   .topbar { padding: 0 22px; }
   .workspace-main { padding: 25px 22px 38px; }
+}
+@media (min-width: 901px) and (hover: hover) and (pointer: fine) {
+  .sidebar {
+    width: 64px;
+    padding-right: 8px;
+    padding-left: 8px;
+    transition: width 180ms ease, padding 180ms ease;
+  }
+  .sidebar-heading { justify-content: center; }
+  .sidebar .brand { gap: 0; padding: 0; }
+  .sidebar .brand > span:last-child,
+  .sidebar .nav-label,
+  .sidebar .side-nav a > span:not(.unread-count),
+  .sidebar .sidebar-bottom a > span,
+  .sidebar .logout-button > span {
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    white-space: nowrap;
+    transition: max-width 180ms ease, opacity 120ms ease;
+  }
+  .sidebar .nav-label { height: 0; margin: 0; font-size: 0; }
+  .sidebar .side-nav a,
+  .sidebar .sidebar-bottom a,
+  .sidebar .logout-button {
+    position: relative;
+    justify-content: center;
+    gap: 0;
+    padding-right: 0;
+    padding-left: 0;
+  }
+  .sidebar .side-nav a .v-icon,
+  .sidebar .sidebar-bottom a .v-icon,
+  .sidebar .logout-button .v-icon { flex: 0 0 19px; }
+  .sidebar .unread-count {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    min-width: 14px;
+    border-radius: 8px;
+    background: var(--ns-bg-102d26, #102d26);
+    font-size: 8px;
+    line-height: 14px;
+    text-align: center;
+  }
+  .workspace-column { min-width: 0; margin-left: 64px; transition: margin-left 180ms ease; }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar {
+    width: 232px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar-heading { justify-content: space-between; }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .brand { gap: 10px; padding: 0 10px; }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .brand > span:last-child,
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .nav-label,
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .side-nav a > span:not(.unread-count),
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .sidebar-bottom a > span,
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .logout-button > span {
+    max-width: 190px;
+    opacity: 1;
+  }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .nav-label {
+    height: auto;
+    margin: 48px 10px 12px;
+    font-size: 9px;
+  }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .side-nav a,
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .sidebar-bottom a,
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .logout-button {
+    justify-content: flex-start;
+    gap: 12px;
+    padding-right: 11px;
+    padding-left: 11px;
+  }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .sidebar .unread-count {
+    position: static;
+    min-width: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: 10px;
+    line-height: normal;
+    text-align: left;
+  }
+  .workspace-shell:has(.sidebar:hover, .sidebar:focus-within) .workspace-column { margin-left: 232px; }
+}
+@media (min-width: 901px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: reduce) {
+  .sidebar, .workspace-column,
+  .sidebar .brand > span:last-child,
+  .sidebar .nav-label,
+  .sidebar .side-nav a > span,
+  .sidebar .sidebar-bottom a > span,
+  .sidebar .logout-button > span { transition: none; }
 }
 @media (max-width: 680px) {
   .sidebar {

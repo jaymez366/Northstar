@@ -25,6 +25,17 @@ For Twilio calling, configure `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY`, and
 API key and secret must be provisioned in Twilio; never paste them into source or
 chat. `TWILIO_TURN_TTL_SECONDS` defaults to 3600 (one hour).
 
+Production must also set `RATE_LIMIT_REDIS_URL` to the private Render Key Value
+connection URL (or a compatible Redis URL). Keep this value only in the backend
+environment. `ICE_SERVERS_USER_LIMIT`, `ICE_SERVERS_GLOBAL_LIMIT`, and
+`ICE_SERVERS_RATE_WINDOW_SECONDS` default to 10, 120, and 60. The ICE endpoint
+uses one atomic Redis Lua operation for both rolling-window limits, keyed by
+verified JWT subject and endpoint-wide scope. Rate-limit state is shared across workers;
+there is no in-memory fallback. Missing production configuration prevents
+application configuration from loading. If Redis is unavailable at request
+time, the endpoint fails closed with a generic 503; over-limit requests receive
+429 and `Retry-After`.
+
 Run the server and tests:
 
 ```powershell
@@ -52,9 +63,15 @@ accepts wildcard origins. Request bodies are capped by `MAX_REQUEST_BODY_BYTES`
 (default 1 MiB; allowed range 1 KiB–20 MiB). Authentication failures use a safe
 401 response and structured event logging without token contents. Unhandled errors
 return a generic 500 body; application logs record only event, HTTP method and
-route template. No in-memory rate limiter is included: production rate limiting
-requires a trusted gateway or shared store (for example, an API gateway or Redis
-backed limiter) configured for every worker.
+route template. Automated tests inject a fake atomic store and do not require a
+Redis service. This does not verify connectivity or Lua behavior against a live
+Render Key Value instance.
+
+Optional Lua integration tests live in `tests/test_rate_limit_redis_integration.py`.
+They run only when `TEST_RATE_LIMIT_REDIS_URL` is explicitly set to a disposable,
+isolated test Redis instance; they never fall back to `RATE_LIMIT_REDIS_URL`.
+Without that variable they are reported as skipped. The tests delete only their
+unique test keys and do not flush the selected Redis database.
 
 The dependency manifest specifies compatible version ranges, not a complete
 transitive lockfile. Use a reviewed lock/constraints workflow in CI before
@@ -75,8 +92,8 @@ these packages as part of deployment.
 | Support inquiries | Supabase support RPCs and Realtime/PostgREST | None | Keep the existing scoped RPC flow unless support needs external ticketing or privileged server orchestration. |
 | Announcements, events, company resources | RLS-governed PostgREST and Storage | None | Keep direct access under RLS; use the API only for integrations or server-side processing. |
 
-Recommended order: (1) choose and deploy an API gateway/shared rate limiter and
-set production environment values, (2) configure Twilio backend secrets and run
+Recommended order: (1) provision and configure a shared Redis-compatible store
+for production (the application does not create one), (2) configure Twilio backend secrets and run
 two-user TURN connectivity checks, (3) select one owner for push delivery before any
 consolidation, and (4) add business API routes only where a concrete server-side
 responsibility exists. Frontend integration should then be limited to those

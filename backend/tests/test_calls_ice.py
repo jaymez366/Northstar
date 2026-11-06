@@ -14,6 +14,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import install_error_handlers
 from app.schemas.calls import IceServersResponse
 from app.services import auth as auth_module
+from app.services import rate_limit as rate_limit_module
 from app.services import twilio_turn
 
 
@@ -72,11 +73,16 @@ def user_token(monkeypatch):
     return issue
 
 
-def make_client(settings):
+def make_client(settings, limiter=None, *, inject_limiter=True):
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(calls_router, prefix="/api/v1")
     app.dependency_overrides[get_settings] = lambda: settings
+    class AllowTestLimiter:
+        async def check(self, _subject):
+            return None
+    if inject_limiter:
+        app.dependency_overrides[rate_limit_module.get_ice_server_rate_limiter] = lambda: limiter or AllowTestLimiter()
     return TestClient(app)
 
 
@@ -149,12 +155,102 @@ def test_unauthenticated_request_does_not_call_twilio(monkeypatch):
     assert calls == []
 
 
+def test_unauthenticated_request_does_not_reach_rate_limiter_or_twilio(monkeypatch):
+    reached = []
+    class TrackingLimiter:
+        async def check(self, subject):
+            reached.append(subject)
+    calls = mock_twilio(monkeypatch, [FakeResponse(payload=provider_payload())])
+    with make_client(make_settings(), limiter=TrackingLimiter()) as client:
+        response = client.get("/api/v1/calls/ice-servers")
+    assert response.status_code == 401
+    assert reached == []
+    assert calls == []
+
+
+def test_rate_limiter_receives_verified_jwt_subject(user_token, monkeypatch):
+    received = []
+    class TrackingLimiter:
+        async def check(self, subject):
+            received.append(subject)
+    mock_twilio(monkeypatch, [FakeResponse(payload=provider_payload())])
+    with make_client(make_settings(), limiter=TrackingLimiter()) as client:
+        response = client.get(
+            "/api/v1/calls/ice-servers",
+            headers={"Authorization": f"Bearer {user_token('verified-employee-subject')}"},
+        )
+    assert response.status_code == 200
+    assert received == ["verified-employee-subject"]
+
+
 def test_invalid_jwt_does_not_call_twilio(user_token, monkeypatch):
     calls = mock_twilio(monkeypatch, [FakeResponse(payload=provider_payload())])
     with make_client(make_settings()) as client:
         response = client.get("/api/v1/calls/ice-servers", headers={"Authorization": "Bearer invalid-token"})
     assert response.status_code == 401
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("limiter_error", "expected_status", "expected_header"),
+    [
+        (rate_limit_module.RateLimitExceeded(17), 429, "17"),
+        (rate_limit_module.RateLimitStoreUnavailable(), 503, None),
+    ],
+)
+def test_rate_limit_failure_prevents_twilio_request(
+    user_token, monkeypatch, limiter_error, expected_status, expected_header
+):
+    class RejectingLimiter:
+        async def check(self, _subject):
+            raise limiter_error
+    calls = mock_twilio(monkeypatch, [FakeResponse(payload=provider_payload())])
+    with make_client(make_settings(), limiter=RejectingLimiter()) as client:
+        response = client.get(
+            "/api/v1/calls/ice-servers",
+            headers={"Authorization": f"Bearer {user_token()}"},
+        )
+    assert response.status_code == expected_status
+    if expected_header is not None:
+        assert response.headers["retry-after"] == expected_header
+        assert response.json()["error"]["code"] == "rate_limited"
+    else:
+        assert response.json()["error"]["message"] == "Request could not be completed"
+    assert calls == []
+
+
+def test_missing_shared_store_fails_closed_before_twilio(user_token, monkeypatch):
+    calls = mock_twilio(monkeypatch, [FakeResponse(payload=provider_payload())])
+    with make_client(make_settings(), inject_limiter=False) as client:
+        response = client.get(
+            "/api/v1/calls/ice-servers",
+            headers={"Authorization": f"Bearer {user_token()}"},
+        )
+    assert response.status_code == 503
+    assert response.json()["error"]["message"] == "Request could not be completed"
+    assert calls == []
+
+
+@pytest.mark.parametrize("malformed_result", [[2, 0], [1, 1], None])
+def test_malformed_rate_limit_result_fails_before_twilio(
+    user_token, monkeypatch, caplog, malformed_result
+):
+    class MalformedStore:
+        async def eval(self, *_args):
+            return malformed_result
+
+    limiter = rate_limit_module.IceServerRateLimiter(MalformedStore())
+    calls = mock_twilio(monkeypatch, [FakeResponse(payload=provider_payload())])
+    with make_client(make_settings(), limiter=limiter) as client:
+        response = client.get(
+            "/api/v1/calls/ice-servers",
+            headers={"Authorization": f"Bearer {user_token()}"},
+        )
+    assert response.status_code == 503
+    assert response.json()["error"]["message"] == "Request could not be completed"
+    assert response.text == '{"error":{"code":"request_failed","message":"Request could not be completed"}}'
+    assert calls == []
+    assert "malformed_result" not in caplog.text
 
 
 def test_valid_user_receives_twilio_ice_servers_and_correct_ttl(user_token, monkeypatch):

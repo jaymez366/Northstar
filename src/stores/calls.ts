@@ -1,10 +1,17 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
+import {
+  claimCallSignalId,
+  invitationTimeRemaining,
+  isCallSessionActive,
+  isSignalForCallParticipant,
+  reconnectDelayMs,
+} from '@/utils/callLifecycle'
 
 type CallKind = 'audio' | 'video'
-type CallStatus = 'starting' | 'ringing' | 'connecting' | 'connected' | 'disconnected'
+type CallStatus = 'starting' | 'calling' | 'ringing' | 'connecting' | 'connected' | 'disconnected'
 type CallRow = {
   id: string
   conversation_id: string
@@ -57,11 +64,19 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   const minimized = ref(false)
   const connectedDurationSeconds = ref(0)
   let channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
+  let channelGeneration = 0
+  let listening = false
+  let reconnectAttempts = 0
+  let browserEventsBound = false
+  let browserWasOffline = false
   let peer: RTCPeerConnection | null = null
   let screenStream: MediaStream | null = null
   let screenVideoSender: RTCRtpSender | null = null
   let ringTimer: ReturnType<typeof setTimeout> | undefined
   let incomingTimer: ReturnType<typeof setTimeout> | undefined
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let stableSubscriptionTimer: ReturnType<typeof setTimeout> | undefined
+  let terminalRetryTimer: ReturnType<typeof setTimeout> | undefined
   let leaseTimer: ReturnType<typeof setInterval> | undefined
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined
   let durationTimer: ReturnType<typeof setInterval> | undefined
@@ -74,31 +89,151 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   let recoveryInFlight = false
   let startGeneration = 0
   const handledSignalIds = new Set<string>()
+  const pendingTerminalActions = new Map<string, {
+    action: Exclude<CallAction, 'heartbeat'>,
+    call: CallRow,
+    attempts: number,
+  }>()
+  const terminalRetryInFlight = new Set<string>()
   let queuedIce: RTCIceCandidateInit[] = []
+
+  watch(() => useAuthStore().userId, (userId, previousUserId) => {
+    if (userId === previousUserId) return
+    if (previousUserId) {
+      void stopListening(false).finally(() => {
+        if (isUuid(userId)) startListening()
+      })
+    } else if (isUuid(userId)) startListening()
+  })
 
   function clearSubscriptionError () {
     if (error.value.startsWith('Supabase Realtime reported ')) error.value = ''
   }
 
+  function clearReconnectTimers () {
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    if (stableSubscriptionTimer) clearTimeout(stableSubscriptionTimer)
+    reconnectTimer = undefined
+    stableSubscriptionTimer = undefined
+  }
+
+  function retireChannel (candidate: NonNullable<typeof channel>, generation: number, remove = true) {
+    if (channel !== candidate || channelGeneration !== generation) return false
+    channel = null
+    channelGeneration += 1
+    if (remove && supabase) void supabase.removeChannel(candidate).catch(() => {})
+    return true
+  }
+
+  function scheduleReconnect (immediate = false) {
+    if (!listening || channel || reconnectTimer || !supabase) return
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+    const delay = reconnectDelayMs(reconnectAttempts + 1)
+    if (delay === null) {
+      error.value = 'Call signaling could not reconnect. Try again when your connection is stable.'
+      return
+    }
+    reconnectAttempts += 1
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = undefined
+      startListening()
+    }, immediate ? 0 : delay)
+  }
+
+  function handleBrowserOffline () {
+    if (!listening) return
+    browserWasOffline = true
+    signalingReady.value = false
+    subscriptionInterrupted = true
+    realtimeUnavailable = true
+    const current = channel
+    if (current) retireChannel(current, channelGeneration)
+  }
+
+  function handleBrowserOnline () {
+    if (!listening) return
+    if (browserWasOffline) {
+      reconnectAttempts = 0
+      browserWasOffline = false
+    }
+    scheduleReconnect(true)
+  }
+
+  function handleDocumentVisibility () {
+    if (!listening || document.visibilityState !== 'visible' || !navigator.onLine) return
+    if (signalingReady.value) {
+      void recoverCallState()
+      return
+    }
+    if (channel) retireChannel(channel, channelGeneration)
+    scheduleReconnect(true)
+  }
+
+  function bindBrowserEvents () {
+    if (browserEventsBound || typeof window === 'undefined' || typeof document === 'undefined') return
+    window.addEventListener('offline', handleBrowserOffline)
+    window.addEventListener('online', handleBrowserOnline)
+    document.addEventListener('visibilitychange', handleDocumentVisibility)
+    browserEventsBound = true
+  }
+
+  function unbindBrowserEvents () {
+    if (!browserEventsBound || typeof window === 'undefined' || typeof document === 'undefined') return
+    window.removeEventListener('offline', handleBrowserOffline)
+    window.removeEventListener('online', handleBrowserOnline)
+    document.removeEventListener('visibilitychange', handleDocumentVisibility)
+    browserEventsBound = false
+  }
+
   function startListening () {
     const auth = useAuthStore()
     if (!supabase || !isSupabaseConfigured || !isUuid(auth.userId) || channel) return
-    channel = supabase.channel(`northstar-call-signals-${auth.userId}`, {
+    listening = true
+    bindBrowserEvents()
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = undefined
+    const subscribedChannel = supabase.channel(`northstar-call-signals-${auth.userId}`, {
       config: { postgres_changes_options: { wait: true } },
     })
+    const generation = ++channelGeneration
+    channel = subscribedChannel
+    const isCurrentSubscription = () => listening && channel === subscribedChannel && channelGeneration === generation
+    const retryAfterFailure = (status: string, removeChannel = true) => {
+      if (!isCurrentSubscription()) return
+      signalingReady.value = false
+      subscriptionInterrupted = true
+      realtimeUnavailable = true
+      error.value = `Supabase Realtime reported ${status} for call signaling. Reconnecting automatically.`
+      if (stableSubscriptionTimer) clearTimeout(stableSubscriptionTimer)
+      stableSubscriptionTimer = undefined
+      if (retireChannel(subscribedChannel, generation, removeChannel)) scheduleReconnect()
+    }
+    subscribedChannel
       .on('postgres_changes', { event: '*', schema: 'public', table: 'northstar_call_sessions' }, payload => {
+        if (!isCurrentSubscription()) return
         handleSessionChange((payload.new ?? payload.old) as CallRow | undefined)
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'northstar_call_signals' }, payload => {
-        const signal = payload.new as CallSignal
-        if (signal.recipient_id !== auth.userId || !isUuid(signal.call_id)) return
-        queueSignal(signal)
+        if (!isCurrentSubscription()) return
+        const signal = payload.new as Partial<CallSignal> | null
+        if (!signal || !isUuid(signal.id) || !isUuid(signal.call_id) || !isUuid(signal.sender_id)
+            || signal.recipient_id !== auth.userId || !['offer', 'answer', 'ice'].includes(signal.signal_type ?? '')
+            || !signal.payload || typeof signal.payload !== 'object' || Array.isArray(signal.payload)) return
+        queueSignal(signal as CallSignal)
       })
-      .subscribe((status, subscriptionError) => {
-        if (!channel) return
+      .subscribe((status) => {
+        if (!isCurrentSubscription()) return
         if (status === 'SUBSCRIBED') {
           signalingReady.value = true
           clearSubscriptionError()
+          if (reconnectTimer) clearTimeout(reconnectTimer)
+          reconnectTimer = undefined
+          if (stableSubscriptionTimer) clearTimeout(stableSubscriptionTimer)
+          stableSubscriptionTimer = setTimeout(() => {
+            if (isCurrentSubscription()) reconnectAttempts = 0
+            stableSubscriptionTimer = undefined
+          }, 30_000)
           const reconnect = hasSubscribed || subscriptionInterrupted
           hasSubscribed = true
           subscriptionInterrupted = false
@@ -106,28 +241,13 @@ export const useCallsStore = defineStore('northstar-calls', () => {
           else {
             realtimeUnavailable = false
             void loadPendingInvitation()
+            void retryPendingTerminalActions()
           }
         }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          if (import.meta.env.DEV) {
-            const detail = subscriptionError && typeof subscriptionError === 'object'
-              ? subscriptionError as { message?: unknown, code?: unknown, details?: unknown, hint?: unknown }
-              : null
-            console.error('[Northstar calls] Realtime subscription failed', {
-              status,
-              message: detail?.message ?? (subscriptionError instanceof Error ? subscriptionError.message : undefined),
-              code: detail?.code,
-              details: detail?.details,
-              hint: detail?.hint,
-            })
-          }
-          signalingReady.value = false
-          subscriptionInterrupted = true
-          realtimeUnavailable = true
-          error.value = `Supabase Realtime reported ${status} for call signaling. Check browser network access and the deployed Realtime configuration.`
-        } else if (status === 'CLOSED' && channel) {
-          signalingReady.value = false
-          subscriptionInterrupted = true
+          retryAfterFailure(status)
+        } else if (status === 'CLOSED') {
+          retryAfterFailure(status, false)
         }
       })
   }
@@ -254,12 +374,12 @@ export const useCallsStore = defineStore('northstar-calls', () => {
         throw new Error('Call signaling returned an unexpected state. No local call was started.')
       }
 
-      activeCall.value = { ...row, status: 'ringing' }
+      activeCall.value = { ...row, status: 'calling' }
       await createPeerConnection(configuration)
       const offer = await peer!.createOffer()
       await peer!.setLocalDescription(offer)
       await sendSignal(row.id, 'offer', { type: offer.type, sdp: offer.sdp })
-      setRingTimeout(row.id)
+      setRingTimeout(row.id, row.expires_at)
       if (!configuration.iceServers?.some(server => (Array.isArray(server.urls) ? server.urls : [server.urls]).some(url => url.startsWith('turn:') || url.startsWith('turns:')))) {
         notice.value = 'No TURN server is configured. Calls may fail on restrictive networks.'
       }
@@ -271,7 +391,12 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     } finally {
       if (startFailed && activeCall.value) {
         const callId = activeCall.value.id
-        if (activeCall.value.status === 'ringing') void changeCallStatus(callId, 'failed')
+        if (activeCall.value.status === 'calling' || activeCall.value.status === 'ringing') {
+          const call = activeCall.value
+          void changeCallStatus(callId, 'failed').then(success => {
+            if (!success) rememberTerminalAction(call, 'failed')
+          })
+        }
         releaseCallResources()
       } else if (startFailed) {
         releaseMedia()
@@ -336,6 +461,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
         return true
       } catch (reason) {
         await changeCallStatus(row.id, 'failed')
+        if (activeCall.value?.id === row.id) rememberTerminalAction(activeCall.value, 'failed')
         releaseCallResources()
         error.value = reason instanceof Error ? reason.message : 'The call could not be accepted.'
         return false
@@ -354,7 +480,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
       if (success) {
         clearIncomingTimer()
         incomingCall.value = null
-      }
+      } else rememberTerminalAction(row, 'decline')
       return success
     } finally {
       incomingActionInFlight.value = false
@@ -364,8 +490,9 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   async function endCall () {
     const row = activeCall.value
     if (!row) return false
-    const action = row.status === 'ringing' ? 'cancel' : 'end'
+    const action = row.status === 'calling' || row.status === 'ringing' ? 'cancel' : 'end'
     const success = await changeCallStatus(row.id, action)
+    if (!success) rememberTerminalAction(row, action)
     releaseCallResources()
     return success
   }
@@ -494,16 +621,21 @@ export const useCallsStore = defineStore('northstar-calls', () => {
   }
 
   function queueSignal (signal: CallSignal) {
-    if (handledSignalIds.has(signal.id)) return
+    if (!claimCallSignalId(signal.id, handledSignalIds)) return
+    let processed = false
     signalQueue = signalQueue.then(async () => {
-      if (handledSignalIds.has(signal.id)) return
-      if (!activeCall.value || signal.call_id !== activeCall.value.id || signal.recipient_id !== useAuthStore().userId) return
-      if (await applySignal(signal)) handledSignalIds.add(signal.id)
-    }).catch(reason => failCall(reason))
+      if (!activeCall.value || signal.call_id !== activeCall.value.id
+          || !isSignalForCallParticipant(signal, activeCall.value, useAuthStore().userId)) return
+      processed = await applySignal(signal)
+    }).catch(reason => failCall(reason)).finally(() => {
+      if (!processed || activeCall.value?.id !== signal.call_id) handledSignalIds.delete(signal.id)
+    })
   }
 
   async function applySignal (signal: CallSignal) {
-    if (!peer || !await confirmCallStillActive(signal.call_id)) return false
+    const call = activeCall.value
+    if (!peer || !call || !isSignalForCallParticipant(signal, call, useAuthStore().userId)
+        || !await confirmCallStillActive(signal.call_id)) return false
     if (signal.signal_type === 'ice') {
       const candidate = signal.payload as RTCIceCandidateInit
       if (!candidate.candidate) return true
@@ -533,6 +665,14 @@ export const useCallsStore = defineStore('northstar-calls', () => {
 
   async function sendSignal (callId: string, signalType: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>) {
     if (!supabase) throw new Error('Secure call signaling is not configured.')
+    const call = activeCall.value
+    const userId = useAuthStore().userId
+    const isExpectedSender = call?.id === callId && (signalType === 'offer'
+      ? userId === call.caller_id && call.status === 'calling'
+      : signalType === 'answer'
+        ? userId === call.callee_id && call.status === 'connecting'
+        : [call.caller_id, call.callee_id].includes(userId))
+    if (!isExpectedSender) throw new Error('Call signaling is not valid for the current participant or call state.')
     const { error: rpcError } = await supabase.rpc('northstar_send_call_signal', {
       p_call_id: callId,
       p_signal_type: signalType,
@@ -548,7 +688,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
       p_action: action,
     })
     if (rpcError) {
-      error.value = `Could not ${action} call: ${rpcError.message}`
+      error.value = `Could not ${action} the call. The server status could not be confirmed.`
       return false
     }
     const row = normalizeRow(data)
@@ -589,19 +729,22 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     return true
   }
 
-  function setRingTimeout (callId: string) {
+  function setRingTimeout (callId: string, expiresAt: string) {
     clearRingTimer()
     ringTimer = setTimeout(async () => {
-      if (activeCall.value?.id !== callId || activeCall.value.status !== 'ringing') return
+      if (activeCall.value?.id !== callId
+          || (activeCall.value.status !== 'calling' && activeCall.value.status !== 'ringing')) return
       const markedMissed = await changeCallStatus(callId, 'missed')
       if (markedMissed) {
         if (activeCall.value?.id === callId) releaseCallResources()
         notice.value = 'The call was not answered.'
-      } else if (activeCall.value?.id === callId && activeCall.value.status === 'ringing') {
+      } else if (activeCall.value?.id === callId
+          && (activeCall.value.status === 'calling' || activeCall.value.status === 'ringing')) {
+        rememberTerminalAction(activeCall.value, 'missed')
         releaseCallResources()
         error.value = 'The call invitation expired, but the server could not confirm its final status.'
       }
-    }, 45000)
+    }, invitationTimeRemaining(expiresAt))
   }
 
   function clearRingTimer () {
@@ -616,7 +759,10 @@ export const useCallsStore = defineStore('northstar-calls', () => {
         heartbeatInFlight = true
         const callId = activeCall.value.id
         void changeCallStatus(callId, 'heartbeat').then(success => {
-          if (!success && activeCall.value?.id === callId) releaseCallResources()
+          if (!success && activeCall.value?.id === callId) {
+            rememberTerminalAction(activeCall.value, 'failed')
+            releaseCallResources()
+          }
         }).finally(() => { heartbeatInFlight = false })
       }
     }, 15000)
@@ -624,7 +770,9 @@ export const useCallsStore = defineStore('northstar-calls', () => {
 
   function failCall (reason: unknown) {
     const row = activeCall.value
-    if (row) void changeCallStatus(row.id, 'failed')
+    if (row) void changeCallStatus(row.id, 'failed').then(success => {
+      if (!success) rememberTerminalAction(row, 'failed')
+    })
     error.value = reason instanceof Error ? reason.message : 'The call failed unexpectedly.'
     releaseCallResources()
   }
@@ -688,18 +836,38 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     minimized.value = false
   }
 
-  async function stopListening () {
+  async function stopListening (sendTerminalStatus = true) {
     startGeneration += 1
+    listening = false
+    clearReconnectTimers()
+    if (terminalRetryTimer) clearTimeout(terminalRetryTimer)
+    terminalRetryTimer = undefined
+    unbindBrowserEvents()
     callStartInFlight.value = false
-    if (activeCall.value) {
+    if (sendTerminalStatus && activeCall.value) {
       const row = activeCall.value
-      void changeCallStatus(row.id, row.status === 'ringing' ? 'cancel' : 'end')
-    } else if (incomingCall.value) {
-      void changeCallStatus(incomingCall.value.id, 'decline')
+      const action = row.status === 'calling' || row.status === 'ringing' ? 'cancel' : 'end'
+      void changeCallStatus(row.id, action).then(success => {
+        if (!success) rememberTerminalAction(row, action)
+      })
+    } else if (sendTerminalStatus && incomingCall.value) {
+      const row = incomingCall.value
+      void changeCallStatus(row.id, 'decline').then(success => {
+        if (!success) rememberTerminalAction(row, 'decline')
+      })
     }
     releaseCallResources()
     incomingCall.value = null
-    if (channel && supabase) await supabase.removeChannel(channel)
+    const oldChannel = channel
+    channel = null
+    channelGeneration += 1
+    if (oldChannel && supabase) {
+      try {
+        await supabase.removeChannel(oldChannel)
+      } catch {
+        error.value = 'Call signaling cleanup could not be confirmed. It will be recreated when the account reconnects.'
+      }
+    }
     channel = null
     signalingReady.value = false
     hasSubscribed = false
@@ -712,6 +880,7 @@ export const useCallsStore = defineStore('northstar-calls', () => {
     try {
       if (!activeCall.value) {
         await loadPendingInvitation()
+        await retryPendingTerminalActions()
         if (realtimeUnavailable) {
           realtimeUnavailable = false
           clearSubscriptionError()
@@ -743,12 +912,13 @@ export const useCallsStore = defineStore('northstar-calls', () => {
       }
       handleSessionChange(row)
       if (activeCall.value?.id !== callId) return
-      if (!['ringing', 'accepted'].includes(row.status) || Date.parse(row.expires_at) <= Date.now()) {
+      if (!isCallSessionActive(row.status, row.expires_at)) {
         error.value = 'The call expired while Realtime was disconnected.'
         releaseCallResources()
         return
       }
       await recoverCallSignals(callId)
+      await retryPendingTerminalActions()
       if (realtimeUnavailable) {
         realtimeUnavailable = false
         clearSubscriptionError()
@@ -806,14 +976,84 @@ export const useCallsStore = defineStore('northstar-calls', () => {
       handleSessionChange(row)
       return false
     }
-    if ((row.status !== 'ringing' && row.status !== 'accepted')
-        || (requiredStatus && row.status !== requiredStatus)
-        || Date.parse(row.expires_at) <= Date.now()) {
+    if (!isCallSessionActive(row.status, row.expires_at)
+        || (requiredStatus && row.status !== requiredStatus)) {
       error.value = 'The call expired or changed state before signaling recovery completed.'
       releaseCallResources()
       return false
     }
     return true
+  }
+
+  function rememberTerminalAction (call: CallRow, action: Exclude<CallAction, 'heartbeat'>) {
+    const previous = pendingTerminalActions.get(call.id)
+    pendingTerminalActions.set(call.id, {
+      action,
+      call,
+      attempts: previous?.action === action ? previous.attempts : 0,
+    })
+    scheduleTerminalRetry()
+  }
+
+  function scheduleTerminalRetry () {
+    if (!listening || !signalingReady.value || terminalRetryTimer || !pendingTerminalActions.size) return
+    const delays = [1_000, 3_000, 10_000]
+    const retryable = [...pendingTerminalActions.values()].filter(item => item.attempts < delays.length)
+    if (!retryable.length) return
+    const attempt = Math.min(...retryable.map(item => item.attempts))
+    terminalRetryTimer = setTimeout(() => {
+      terminalRetryTimer = undefined
+      void retryPendingTerminalActions()
+    }, delays[attempt])
+  }
+
+  async function retryPendingTerminalActions () {
+    if (!supabase || !signalingReady.value) return
+    for (const [callId, pending] of pendingTerminalActions) {
+      if (terminalRetryInFlight.has(callId) || pending.attempts >= 3) continue
+      terminalRetryInFlight.add(callId)
+      try {
+        const { data, error: queryError } = await supabase.from('northstar_call_sessions')
+          .select('id,conversation_id,caller_id,callee_id,call_type,status,expires_at')
+          .eq('id', callId)
+          .maybeSingle()
+        if (queryError) {
+          pending.attempts += 1
+          continue
+        }
+        const row = normalizeRow(data)
+        if (!row || row.id !== callId || row.caller_id !== pending.call.caller_id
+            || row.callee_id !== pending.call.callee_id || ![row.caller_id, row.callee_id].includes(useAuthStore().userId)) {
+          pendingTerminalActions.delete(callId)
+          continue
+        }
+        if (terminalStatuses.has(row.status)) {
+          pendingTerminalActions.delete(callId)
+          continue
+        }
+        const currentUser = useAuthStore().userId
+        const actionStillValid = pending.action === 'cancel'
+          ? row.status === 'ringing' && currentUser === row.caller_id
+          : pending.action === 'decline'
+            ? row.status === 'ringing' && currentUser === row.callee_id
+            : pending.action === 'missed'
+              ? row.status === 'ringing' && currentUser === row.caller_id
+              : pending.action === 'end'
+                ? row.status === 'accepted'
+                : row.status === 'ringing' || row.status === 'accepted'
+        if (!actionStillValid) continue
+        // The persisted row is checked first, so we never blindly replay a terminal
+        // mutation after an ambiguous network failure.
+        if (await changeCallStatus(callId, pending.action)) pendingTerminalActions.delete(callId)
+        else pending.attempts += 1
+      } catch {
+        pending.attempts += 1
+        error.value = 'A call status update is still awaiting confirmation. It will be checked after signaling reconnects.'
+      } finally {
+        terminalRetryInFlight.delete(callId)
+      }
+    }
+    scheduleTerminalRetry()
   }
 
   async function getRtcConfiguration (): Promise<RTCConfiguration> {

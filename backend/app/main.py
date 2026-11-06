@@ -11,16 +11,49 @@ from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.core.request_limits import RequestSizeLimitMiddleware
+from app.services.rate_limit import (
+    RateLimitStoreUnavailable,
+    create_ice_server_rate_limiter,
+    create_redis_client,
+)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
     logging.getLogger(__name__).info(
         "application_start", extra={"event": "application_start"}
     )
-    yield
+    redis_client = None
+    application.state.rate_limit_redis_client = None
+    application.state.ice_server_rate_limiter = None
+    try:
+        if settings.rate_limit_redis_url:
+            try:
+                redis_client = create_redis_client(settings)
+            except RateLimitStoreUnavailable:
+                logging.getLogger(__name__).error(
+                    "rate_limit_client_initialization_failed",
+                    extra={"event": "rate_limit_client_initialization_failed"},
+                )
+                raise RuntimeError("Required rate-limit storage could not be initialized") from None
+            application.state.rate_limit_redis_client = redis_client
+            application.state.ice_server_rate_limiter = create_ice_server_rate_limiter(settings, redis_client)
+        yield
+    finally:
+        try:
+            if redis_client is not None:
+                try:
+                    await redis_client.aclose()
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "rate_limit_client_shutdown_failed",
+                        extra={"event": "rate_limit_client_shutdown_failed"},
+                    )
+        finally:
+            application.state.rate_limit_redis_client = None
+            application.state.ice_server_rate_limiter = None
 
 
 def create_app() -> FastAPI:

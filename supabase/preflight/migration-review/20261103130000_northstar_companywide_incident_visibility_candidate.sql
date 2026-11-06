@@ -1,0 +1,90 @@
+-- NorthStar company-wide incident visibility candidate: BLOCKED / NOT APPLYABLE.
+--
+-- REPOSITORY EVIDENCE (not independent live verification):
+-- northstar_incidents contains title, description, category, severity,
+-- location, reported_by, status, assigned_responder, resolution_details,
+-- department_id, and deleted_at. It has no safe-summary field, generalized
+-- location field, publication flag, or field classification. The list RPC
+-- returns the free-text title, description, exact location, category,
+-- severity, status, responder assignment, resolution_details, reporter ID,
+-- and reporter name. Its current reporter/responder CASE expressions do not
+-- protect description, location, or resolution_details for company-wide rows.
+--
+-- northstar_incident_updates stores event_type, visibility, old/new status,
+-- old/new severity, old/new responder IDs, old/new resolution text, details,
+-- actor_id, and created_at. The history RPC exposes event types, status and
+-- severity transitions, timestamps, and conditionally details. Event labels,
+-- status/severity transitions, timestamps, and reporter-visible free text can
+-- themselves disclose operational or personal information; metadata is not
+-- assumed safe here.
+--
+-- The repository defines two permissive SELECT policies from the disaster
+-- migration (incidents: designated admin/reporter/assigned responder;
+-- updates: designated admin, reporter-visible events to reporter, and
+-- reporter/response-team events to assigned responder). The department
+-- migration adds restrictive authenticated SELECT guards for active eligible
+-- department members/reporters and excludes admin updates while preserving
+-- assigned-responder limits. PostgreSQL combines permissive policies with OR
+-- and restrictive policies with AND. Broadening only a restrictive guard
+-- does not by itself grant ordinary employees a direct table SELECT path past
+-- the existing permissive participant policy. The live catalog's full policy
+-- set, commands, roles, and expressions remain UNVERIFIED because the raw
+-- audit CSV is not in the repository.
+--
+-- Repository write paths: employee incident reporting is mediated by an
+-- eligibility-checking SECURITY DEFINER RPC and a trigger that derives the
+-- reporter department; department-head updates are restricted to their
+-- department. Company-wide creation and update RPCs require the designated
+-- administrator. Their exact live definitions and all live insert/update
+-- policies remain UNVERIFIED. This visibility work must not alter those paths.
+--
+-- The original visibility migration changes the two restrictive SELECT
+-- predicates and replaces both list/history RPCs. Those RPCs are
+-- SECURITY DEFINER with row_security=off, so policy changes are not a
+-- substitute for complete RPC authorization and output redaction. The
+-- existing list row shape includes unclassified free text. Extending it as-is
+-- would disclose sensitive content to eligible employees.
+--
+-- This file deliberately contains no database-changing statement. The
+-- existing visibility migration must not be made executable until the
+-- product owner approves field semantics and write authorization. Minimum
+-- schema proposal for that review (not applied here): add
+-- companywide_published BOOLEAN NOT NULL DEFAULT false,
+-- companywide_safe_title TEXT, companywide_safe_summary TEXT, and
+-- companywide_generalized_location TEXT. The publication flag scopes release
+-- of the approved projection: safe title, category, severity, status,
+-- generalized location, and safe summary. Category/severity/status may be
+-- sourced from existing constrained columns only for an explicitly published
+-- incident; the live data still needs review before assuming each value safe.
+-- Do not copy existing title, description, or location into curated fields by
+-- default. Only the existing designated-admin workflow may set/change the
+-- curated values or publish/unpublish. Do not add direct table write grants or
+-- broaden write policies. The list RPC may return only the approved projection
+-- to eligible employees; full description, precise location, resolution
+-- details, reporter identity, responder assignments, and free-text update
+-- details stay redacted to ordinary employees. History must continue excluding
+-- admin-only updates and assigned-responder-only events; do not expose raw
+-- event text/metadata to all employees without separate classification.
+-- Admins retain their current full authorized view. Reporters and assigned
+-- responders retain only the additional detail their existing authorization
+-- path permits. New fields are null and publication defaults false, so existing
+-- incidents remain hidden from ordinary employees until an authorized admin
+-- curates the safe values and explicitly publishes them; no bulk backfill from
+-- sensitive fields is implied. This is a proposal, not an approved permission
+-- model or executable schema change.
+--
+-- Before preparing an executable revision, retrieve every live policy for
+-- both incident tables, table grants and RLS/force-RLS flags; exact definitions
+-- of both RPCs and all authorization helpers; and the insert/update RPCs,
+-- triggers, and table write policies. Record reviewed exact before/after
+-- definition/policy guards. The supplied audit summary (not raw ACL rows)
+-- reports authenticated and service_role allowed and anon/PUBLIC denied on
+-- both list/history RPCs. Preserve and assert all four without revoking
+-- service_role. Design safe first-run, expected-final-state no-op, and
+-- unexpected-partial-state abort behavior before replacing this stop gate.
+
+DO $blocked$
+BEGIN
+  RAISE EXCEPTION 'NorthStar incident visibility candidate is blocked: approve field-level incident disclosure and write authorization before preparing executable SQL.';
+END;
+$blocked$;

@@ -27,6 +27,7 @@
   })
   const callStateLabel = computed(() => {
     if (calls.activeCall?.status === 'starting') return 'Preparing call…'
+    if (calls.activeCall?.status === 'calling') return 'Calling…'
     if (calls.activeCall?.status === 'ringing') return 'Ringing…'
     if (calls.activeCall?.status === 'connecting') return 'Connecting…'
     if (calls.activeCall?.status === 'disconnected') return 'Connection lost · trying to reconnect…'

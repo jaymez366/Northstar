@@ -18,6 +18,8 @@
     "@fontsource/roboto-mono": "^5.2.8",
     "@mdi/font": "7.4.47",
     "@supabase/supabase-js": "^2.117.2",
+    "emoji-picker-element": "^1.29.1",
+    "emoji-picker-element-data": "^1.8.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.30",
     "vue-i18n": "^11.3.0",

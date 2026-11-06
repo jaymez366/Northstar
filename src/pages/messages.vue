@@ -2,8 +2,10 @@
   import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useCallsStore } from '@/stores/calls'
-  import { useWorkspaceStore } from '@/stores/workspace'
+  import { useWorkspaceStore, type ChatMessage } from '@/stores/workspace'
   import { formatPresenceLabel } from '@/utils/presence'
+  import emojiDataUrl from 'emoji-picker-element-data/en/emojibase/data.json?url'
+  import 'emoji-picker-element'
 
   const route = useRoute()
   const router = useRouter()
@@ -22,6 +24,13 @@
   const editDraft = ref('')
   const selectedMessageIds = ref<string[]>([])
   const openMenuMessageId = ref('')
+  const headerMessageMenuOpen = ref(false)
+  const showEmojiPicker = ref(false)
+  const emojiPickerMount = ref<HTMLElement | null>(null)
+  const composerInput = ref<HTMLInputElement | null>(null)
+  const forwardingMessage = ref<ChatMessage | null>(null)
+  const forwardTargetConversationId = ref('')
+  const forwarding = ref(false)
   const messageSearchOpen = ref(false)
   const messageSearch = ref('')
   const activeSearchMessageId = ref('')
@@ -59,6 +68,10 @@
   const pendingVisibleAcknowledgementVersions = new Set<string>()
   const visibilityChangeHandler = () => observeVisibleMessages()
   const selectedConversation = computed(() => workspace.conversations.find(item => item.id === selectedId.value))
+  const selectedMessage = computed(() => selectedMessageIds.value.length === 1
+    ? selectedConversation.value?.messages.find(message => message.id === selectedMessageIds.value[0])
+    : undefined)
+  const forwardableConversations = computed(() => workspace.conversations.filter(conversation => !conversation.archived))
   function presenceLabel (online: boolean | null | undefined, lastSeenAt: string | null | undefined) {
     return formatPresenceLabel(online, lastSeenAt, presenceClock.value)
   }
@@ -88,6 +101,35 @@
     return names.length ? `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} typing…` : 'Someone is typing…'
   })
   let visibilityObserver: IntersectionObserver | null = null
+  let emojiPickerElement: HTMLElement | null = null
+
+  function insertPickedEmoji (event: Event) {
+    const emoji = (event as CustomEvent<{ unicode?: string }>).detail?.unicode
+    if (!emoji) return
+    const input = composerInput.value
+    const start = input?.selectionStart ?? draft.value.length
+    const end = input?.selectionEnd ?? start
+    draft.value = `${draft.value.slice(0, start)}${emoji}${draft.value.slice(end)}`
+    showEmojiPicker.value = false
+    void nextTick(() => {
+      input?.focus()
+      const caret = start + emoji.length
+      input?.setSelectionRange(caret, caret)
+      handleComposerInput()
+    })
+  }
+
+  watch(showEmojiPicker, async open => {
+    if (!open) return
+    await nextTick()
+    if (!emojiPickerMount.value) return
+    if (!emojiPickerElement) {
+      emojiPickerElement = document.createElement('emoji-picker')
+      emojiPickerElement.setAttribute('data-source', emojiDataUrl)
+      emojiPickerElement.addEventListener('emoji-click', insertPickedEmoji)
+    }
+    emojiPickerMount.value.append(emojiPickerElement)
+  })
 
   interface SpeechRecognitionLike {
     continuous: boolean
@@ -152,6 +194,9 @@
     recognition = null
     if (recordedVoiceUrl.value) URL.revokeObjectURL(recordedVoiceUrl.value)
     for (const url of Object.values(attachmentUrls.value)) URL.revokeObjectURL(url)
+    emojiPickerElement?.removeEventListener('emoji-click', insertPickedEmoji)
+    emojiPickerElement?.remove()
+    emojiPickerElement = null
     cancelMessagePress()
     visibilityObserver?.disconnect()
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visibilityChangeHandler)
@@ -187,6 +232,7 @@
     replyingTo.value = null
     selectedMessageIds.value = []
     openMenuMessageId.value = ''
+    headerMessageMenuOpen.value = false
     messageSearch.value = ''
     messageSearchOpen.value = false
     if (conversationId) void workspace.markConversationRead(conversationId)
@@ -529,6 +575,7 @@
       ? selectedMessageIds.value.filter(id => id !== messageId)
       : [...selectedMessageIds.value, messageId]
     openMenuMessageId.value = ''
+    headerMessageMenuOpen.value = false
   }
 
   function handleMessageClick (messageId: string) {
@@ -576,6 +623,8 @@
     if (message.deletedAt) return
     replyingTo.value = { id: message.id, author: message.author, text: message.text }
     openMenuMessageId.value = ''
+    headerMessageMenuOpen.value = false
+    selectedMessageIds.value = []
     nextTick(() => document.querySelector<HTMLInputElement>('.composer input')?.focus())
   }
 
@@ -588,10 +637,56 @@
     if (!success && workspace.backendError) actionNotice.value = workspace.backendError
   }
 
+  function openForwardDialog (message: ChatMessage) {
+    if (message.deletedAt) return
+    forwardingMessage.value = message
+    forwardTargetConversationId.value = ''
+    forwarding.value = false
+    headerMessageMenuOpen.value = false
+    openMenuMessageId.value = ''
+  }
+
+  function closeForwardDialog () {
+    if (forwarding.value) return
+    forwardingMessage.value = null
+    forwardTargetConversationId.value = ''
+  }
+
+  async function confirmForward () {
+    const message = forwardingMessage.value
+    const targetId = forwardTargetConversationId.value
+    const text = message?.text.trim() ?? ''
+    if (!message || message.deletedAt || !targetId || !text || forwarding.value) return
+    forwarding.value = true
+    actionNotice.value = ''
+    let sent = false
+    try {
+      sent = await workspace.sendMessage(targetId, text)
+    } catch {
+      actionNotice.value = 'The message could not be forwarded.'
+    } finally {
+      forwarding.value = false
+    }
+    if (!sent) {
+      if (!actionNotice.value) actionNotice.value = workspace.backendError || 'The message could not be forwarded.'
+      return
+    }
+    actionNotice.value = message.attachments.length
+      ? 'Message text forwarded. Attachments were not copied.'
+      : 'Message forwarded.'
+    forwardingMessage.value = null
+    forwardTargetConversationId.value = ''
+    selectedMessageIds.value = []
+    window.setTimeout(() => { actionNotice.value = '' }, 3000)
+  }
+
   function onGlobalKeydown (event: KeyboardEvent) {
     if (event.key === 'Escape') {
+      if (showEmojiPicker.value) showEmojiPicker.value = false
+      if (headerMessageMenuOpen.value) headerMessageMenuOpen.value = false
       if (openMenuMessageId.value) openMenuMessageId.value = ''
-      else selectedMessageIds.value = []
+      else if (selectedMessageIds.value.length) selectedMessageIds.value = []
+      if (forwardingMessage.value) closeForwardDialog()
     }
     if (openMenuMessageId.value && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
       const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button:not(:disabled)')]
@@ -708,7 +803,7 @@
 
 <template>
   <main>
-    <header class="page-heading"><div><p class="eyebrow">YOUR INBOX</p><h1>Messages</h1><p>Keep conversations moving with direct, thoughtful communication.</p></div><router-link class="secondary-action" to="/employees"><v-icon icon="mdi-plus" size="17" /> New message</router-link></header>
+    <header class="page-heading messages-page-heading"><div class="messages-page-intro"><p class="eyebrow">YOUR INBOX</p><h1>Messages</h1><p>Keep conversations moving with direct, thoughtful communication.</p></div><router-link class="secondary-action" to="/employees"><v-icon icon="mdi-plus" size="17" /> New message</router-link></header>
     <p v-if="workspace.backendError" class="message-error" role="alert">{{ workspace.backendError }}</p>
 
     <section class="messaging-layout surface-card" :class="{ 'has-selected-conversation': Boolean(selectedConversation || composingEmployee) }">
@@ -737,7 +832,7 @@
 
         <div v-if="filteredConversations.length === 0" class="conversation-empty">
           <template v-if="workspace.conversations.length">No conversations match.</template>
-          <template v-else>No conversations yet. Browse colleagues to start one.</template>
+          <template v-else>No conversations yet. Use New message to start one.</template>
         </div>
       </aside>
 
@@ -755,6 +850,20 @@
               <button class="chat-tool-button" type="button" aria-label="Start voice call" :title="calls.signalingReady ? 'Start voice call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('audio')"><v-icon icon="mdi-phone-outline" size="19" /></button>
               <button class="chat-tool-button" type="button" aria-label="Start video call" :title="calls.signalingReady ? 'Start video call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('video')"><v-icon icon="mdi-video-outline" size="19" /></button>
             </div>
+            <div v-if="selectedMessage" class="header-message-actions">
+              <button class="chat-tool-button" type="button" aria-label="Message actions" title="Message actions" :aria-expanded="headerMessageMenuOpen" aria-haspopup="menu" @click="headerMessageMenuOpen = !headerMessageMenuOpen"><v-icon icon="mdi-dots-vertical" size="19" /></button>
+              <div v-if="headerMessageMenuOpen" class="message-context-menu header-message-menu" role="menu" aria-label="Selected message actions" @click.stop>
+                <button role="menuitem" type="button" aria-label="Clear message selection" @click="selectedMessageIds = []; headerMessageMenuOpen = false"><v-icon icon="mdi-close" size="16" /> Clear selection</button>
+                <button v-if="!selectedMessage.deletedAt" role="menuitem" type="button" @click="setReplyTarget(selectedMessage)"><v-icon icon="mdi-reply-outline" size="16" /> Reply</button>
+                <button v-if="!selectedMessage.deletedAt" role="menuitem" type="button" @click="openForwardDialog(selectedMessage)"><v-icon icon="mdi-share-outline" size="16" /> Forward</button>
+                <button v-if="!selectedMessage.deletedAt" role="menuitem" type="button" @click="copyMessage(selectedMessage)"><v-icon icon="mdi-content-copy" size="16" /> Copy text</button>
+                <button v-if="!selectedMessage.deletedAt" role="menuitem" type="button" @click="togglePinnedMessage(selectedMessage.id); headerMessageMenuOpen = false"><v-icon :icon="selectedConversation.pinnedMessageIds.includes(selectedMessage.id) ? 'mdi-pin-off-outline' : 'mdi-pin-outline'" size="16" /> {{ selectedConversation.pinnedMessageIds.includes(selectedMessage.id) ? 'Unpin for me' : 'Pin for me' }}</button>
+                <button v-if="canEditMessage(selectedMessage)" role="menuitem" type="button" @click="beginEdit(selectedMessage); headerMessageMenuOpen = false"><v-icon icon="mdi-pencil-outline" size="16" /> Edit</button>
+                <button v-if="canDeleteForEveryone(selectedMessage)" role="menuitem" type="button" @click="deleteForEveryone(selectedMessage.id); headerMessageMenuOpen = false"><v-icon icon="mdi-delete-forever-outline" size="16" /> Delete for everyone</button>
+                <button v-if="!selectedMessage.deletedAt" role="menuitem" type="button" @click="hideForMe(selectedMessage.id); headerMessageMenuOpen = false"><v-icon icon="mdi-delete-outline" size="16" /> Delete for me</button>
+                <div v-if="!selectedMessage.deletedAt" class="message-react-options" role="group" aria-label="React to message"><span>React</span><button v-for="reaction in reactionOptions" :key="reaction" type="button" :aria-label="`React with ${reaction}`" :aria-pressed="selectedMessage.reactions.some(item => item.emoji === reaction && item.reactedByMe)" @click="toggleReaction(selectedMessage.id, reaction)">{{ reaction }}</button></div>
+              </div>
+            </div>
             <small v-if="!calls.signalingReady" class="chat-call-status" role="status">Calls are unavailable until secure signaling connects.</small>
             <button class="chat-tool-button" type="button" :aria-label="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" :title="selectedConversation.archived ? 'Restore conversation' : 'Archive conversation'" @click="workspace.setConversationState(selectedConversation.id, selectedConversation.archived ? 'restore' : 'archive')"><v-icon :icon="selectedConversation.archived ? 'mdi-inbox-arrow-down-outline' : 'mdi-archive-outline'" size="19" /></button>
             <button class="chat-tool-button" type="button" aria-label="Mark conversation unread" title="Mark unread" @click="markCurrentConversationUnread"><v-icon icon="mdi-email-mark-as-unread" size="19" /></button>
@@ -763,7 +872,7 @@
           </div>
         </header>
 
-        <div v-if="selectedMessageIds.length" class="selection-toolbar" role="toolbar" aria-label="Selected message actions">
+        <div v-if="selectedMessageIds.length > 1" class="selection-toolbar" role="toolbar" aria-label="Selected message actions">
           <button type="button" aria-label="Cancel selection" title="Cancel selection" @click="selectedMessageIds = []"><v-icon icon="mdi-close" size="19" /></button>
           <strong>{{ selectedMessageIds.length }} selected</strong>
           <button type="button" aria-label="Delete selected messages for me" title="Delete for me" @click="hideSelectedMessages"><v-icon icon="mdi-delete-outline" size="19" /></button>
@@ -824,18 +933,17 @@
                 <v-icon v-else icon="mdi-check" size="15" />
               </span>
             </div>
-            <div v-if="!message.deletedAt" class="reaction-row" aria-label="Message reactions">
-              <button v-for="reaction in reactionOptions" :key="reaction" class="reaction-button" :class="{ active: message.reactions.some(item => item.emoji === reaction && item.reactedByMe) }" type="button" :aria-label="`${reaction} reaction${message.reactions.find(item => item.emoji === reaction)?.count ? `, ${message.reactions.find(item => item.emoji === reaction)?.count} total` : ''}`" :aria-pressed="message.reactions.some(item => item.emoji === reaction && item.reactedByMe)" @click.stop="toggleReaction(message.id, reaction)"><span>{{ reaction }}</span><small v-if="message.reactions.find(item => item.emoji === reaction)">{{ message.reactions.find(item => item.emoji === reaction)?.count }}</small></button>
-            </div>
             <button class="message-menu-trigger" type="button" :aria-label="`Actions for message from ${message.author}`" :aria-expanded="openMenuMessageId === message.id" aria-haspopup="menu" @click.stop="openMenuMessageId = openMenuMessageId === message.id ? '' : message.id"><v-icon icon="mdi-dots-vertical" size="18" /></button>
             <div v-if="openMenuMessageId === message.id" class="message-context-menu" role="menu" @click.stop>
               <button v-if="!message.deletedAt" role="menuitem" type="button" @click="copyMessage(message)"><v-icon icon="mdi-content-copy" size="16" /> Copy text</button>
               <button v-if="!message.deletedAt" role="menuitem" type="button" @click="setReplyTarget(message)"><v-icon icon="mdi-reply-outline" size="16" /> Reply</button>
+              <button v-if="!message.deletedAt" role="menuitem" type="button" @click="openForwardDialog(message)"><v-icon icon="mdi-share-outline" size="16" /> Forward</button>
               <button v-if="!message.deletedAt" role="menuitem" type="button" @click="togglePinnedMessage(message.id)"><v-icon :icon="selectedConversation?.pinnedMessageIds.includes(message.id) ? 'mdi-pin-off-outline' : 'mdi-pin-outline'" size="16" /> {{ selectedConversation?.pinnedMessageIds.includes(message.id) ? 'Unpin for me' : 'Pin for me' }}</button>
               <button role="menuitem" type="button" @click="toggleMessageSelection(message.id)"><v-icon icon="mdi-checkbox-multiple-outline" size="16" /> Select message</button>
               <button v-if="message.mine && canEditMessage(message)" role="menuitem" type="button" @click="beginEdit(message); openMenuMessageId = ''"><v-icon icon="mdi-pencil-outline" size="16" /> Edit</button>
               <button v-if="message.mine && canDeleteForEveryone(message)" role="menuitem" type="button" @click="deleteForEveryone(message.id); openMenuMessageId = ''"><v-icon icon="mdi-delete-forever-outline" size="16" /> Delete for everyone</button>
               <button role="menuitem" type="button" @click="hideForMe(message.id); openMenuMessageId = ''"><v-icon icon="mdi-delete-outline" size="16" /> Delete for me</button>
+              <div v-if="!message.deletedAt" class="message-react-options" role="group" aria-label="React to message"><span>React</span><button v-for="reaction in reactionOptions" :key="reaction" type="button" :aria-label="`React with ${reaction}`" :aria-pressed="message.reactions.some(item => item.emoji === reaction && item.reactedByMe)" @click="toggleReaction(message.id, reaction)">{{ reaction }}</button></div>
             </div>
           </article>
           </template>
@@ -852,20 +960,34 @@
           <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" aria-label="Record voice message" title="Record voice message" :disabled="uploadingAttachment" @click="startVoiceRecording"><v-icon icon="mdi-microphone-outline" size="19" /></button>
           <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" :class="{ 'dictation-active': dictating }" :aria-label="dictating ? 'Stop speech-to-text' : 'Dictate message text'" :title="dictating ? 'Stop dictation' : 'Dictate message text'" :disabled="uploadingAttachment" @click="toggleDictation"><v-icon :icon="dictating ? 'mdi-stop' : 'mdi-microphone-message'" size="19" /></button>
           <button v-if="dictating" type="button" class="composer-tool" aria-label="Cancel speech-to-text" title="Cancel dictation" @click="cancelDictation"><v-icon icon="mdi-close" size="18" /></button>
-          <input v-model="draft" aria-label="Write a message" autocomplete="off" placeholder="Write a message..." @input="handleComposerInput" @blur="selectedConversation && workspace.updateConversationTyping(selectedConversation.id, false)">
+          <div v-if="showEmojiPicker" ref="emojiPickerMount" class="emoji-picker-popover" @click.stop />
+          <button type="button" class="composer-tool emoji-picker-button" aria-label="Choose emoji" title="Choose emoji" :aria-expanded="showEmojiPicker" :disabled="uploadingAttachment" @click="showEmojiPicker = !showEmojiPicker"><v-icon icon="mdi-emoticon-outline" size="20" /></button>
+          <input ref="composerInput" v-model="draft" aria-label="Write a message" autocomplete="off" placeholder="Write a message..." @input="handleComposerInput" @blur="selectedConversation && workspace.updateConversationTyping(selectedConversation.id, false)">
           <button v-if="recordedVoiceFile" type="button" aria-label="Send voice message" :disabled="uploadingAttachment" @click="uploadChatFile(recordedVoiceFile, recordingSeconds)"><v-icon icon="mdi-send" size="18" /></button>
           <button v-else-if="selectedAttachment" type="button" aria-label="Upload attachment" :disabled="uploadingAttachment" @click="uploadChatFile(selectedAttachment)"><v-icon icon="mdi-send" size="18" /></button>
           <button v-else aria-label="Send message" :disabled="!draft.trim() || sending || uploadingAttachment" type="submit"><v-icon icon="mdi-send" size="18" /></button>
         </form>
       </section>
 
-      <section v-else class="chat-empty empty-state"><v-icon icon="mdi-message-text-outline" size="38" /><h2>Your messages</h2><p>Select an employee to open a conversation.</p><router-link class="secondary-action" to="/employees">Browse colleagues</router-link></section>
+      <section v-else class="chat-empty empty-state"><v-icon icon="mdi-message-text-outline" size="38" /><h2>Your messages</h2><p>Select an employee to open a conversation.</p></section>
     </section>
+
+    <div v-if="forwardingMessage" class="forward-dialog-backdrop" @click.self="closeForwardDialog">
+      <section class="forward-dialog" role="dialog" aria-modal="true" aria-labelledby="forward-dialog-title">
+        <h2 id="forward-dialog-title">Forward message</h2>
+        <p class="forward-preview">{{ forwardingMessage.text || 'This message has no text to forward.' }}</p>
+        <p v-if="forwardingMessage.attachments.length" class="forward-attachment-note">Attachments are not copied; only the message text will be forwarded.</p>
+        <label for="forward-conversation">Choose a conversation</label>
+        <select id="forward-conversation" v-model="forwardTargetConversationId"><option disabled value="">Select a conversation</option><option v-for="conversation in forwardableConversations" :key="conversation.id" :value="conversation.id">{{ conversation.name }}</option></select>
+        <div class="forward-dialog-actions"><button type="button" :disabled="forwarding" @click="closeForwardDialog">Cancel</button><button type="button" :disabled="forwarding || !forwardTargetConversationId || !forwardingMessage.text.trim()" @click="confirmForward">{{ forwarding ? 'Forwarding…' : 'Forward' }}</button></div>
+      </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
-.messaging-layout { display: grid; min-height: 570px; grid-template-columns: 310px minmax(0, 1fr); overflow: hidden; }
+.messages-page-heading { min-width: 0; }
+.messaging-layout { display: grid; min-width: 0; min-height: 570px; grid-template-columns: 310px minmax(0, 1fr); overflow: hidden; }
 .conversation-sidebar { border-right: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
 .inbox-heading { display: flex; align-items: center; gap: 9px; padding: 17px 17px 12px; color: var(--ns-text-18352d, #18352d); font-size: 13px; }
 .refresh-button { display: grid; width: 30px; height: 30px; place-items: center; margin-left: auto; border: 1px solid var(--ns-border); border-radius: 8px; background: var(--ns-surface); color: var(--ns-primary); cursor: pointer; }
@@ -904,6 +1026,7 @@
 .chat-header-employee strong, .chat-header-employee small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-header-tools { display: flex; min-width: 0; flex: 0 1 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .chat-header-tools > .chat-tool-button { margin-left: 0; }
+.header-message-actions { position: relative; }
 .chat-tool-button, .message-search-panel > button, .selection-toolbar button { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 9px; background: var(--ns-surface, #fff); color: var(--ns-text-18352d, #18352d); cursor: pointer; }
 .chat-tool-button { margin-left: auto; }
 .chat-call-actions { display: flex; flex: 0 0 auto; gap: 6px; }
@@ -958,12 +1081,7 @@
 .message-attachment small { overflow-wrap: anywhere; color: var(--ns-text-secondary); font-size: 9px; }
 .attachment-open, .attachment-refresh { justify-self: start; border: 0; padding: 4px 0; background: transparent; color: var(--ns-blue-primary, #2563eb); cursor: pointer; font: inherit; font-size: 10px; }
 .message-attachment a { color: var(--ns-blue-primary, #2563eb); font-size: 10px; }
-.reaction-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 4px; }
-.reaction-button { display: inline-flex; min-width: 27px; min-height: 25px; align-items: center; justify-content: center; gap: 3px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 999px; padding: 2px 6px; background: var(--ns-surface, #fff); cursor: pointer; }
-.reaction-button.active { border-color: var(--ns-blue-primary, #2563eb); background: color-mix(in srgb, var(--ns-blue-primary, #2563eb) 10%, white); }
-.reaction-button span { font-size: 12px; line-height: 1; }
-.reaction-button small { color: var(--ns-text-secondary); font-size: 9px; }
-.reaction-button:focus-visible, .reply-preview:focus-visible, .composer-reply button:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
+.reply-preview:focus-visible, .composer-reply button:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
 .chat-message time { color: var(--ns-text-a1aaa2, #a1aaa2); font-size: 8px; }
 .chat-message.deleted p { border-style: dashed; background: transparent; color: var(--ns-text-829187, #829187); font-style: italic; }
 .message-footer { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
@@ -977,14 +1095,20 @@
 .message-context-menu { position: absolute; z-index: 10; top: 32px; inset-inline-end: 0; display: grid; width: min(220px, calc(100vw - 30px)); border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 10px; padding: 5px; background: var(--ns-surface, #fff); box-shadow: 0 12px 28px rgb(19 41 32 / 18%); }
 .message-context-menu button { display: flex; min-height: 38px; align-items: center; gap: 9px; border: 0; border-radius: 6px; padding: 0 9px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; font-size: 11px; text-align: left; }
 .message-context-menu button:hover { background: var(--ns-bg-f1f4eb, #f1f4eb); }
+.header-message-menu { top: calc(100% + 6px); right: 0; }
+.message-react-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; border-top: 1px solid var(--ns-border-e7ebe3, #e7ebe3); margin-top: 4px; padding-top: 5px; }
+.message-react-options > span { grid-column: 1 / -1; padding: 3px 5px; color: var(--ns-text-secondary); font-size: 10px; }
+.message-context-menu .message-react-options button { min-height: 40px; justify-content: center; padding: 2px; font-size: 20px; }
 .message-edit-form { display: grid; gap: 6px; min-width: min(70vw, 320px); border: 1px solid var(--ns-border); padding: 8px; }
 .message-edit-form textarea { resize: vertical; border: 1px solid var(--ns-border); padding: 8px; font: inherit; }
 .message-error { grid-column: 1 / -1; margin: 0; padding: 10px 15px; background: #fff2ef; color: var(--ns-danger-text, #9b3328); font-size: 11px; }
-.composer { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 17px 17px; border: 1px solid var(--ns-border-dce4d8, #dce4d8); padding: 6px; }
+.composer { position: relative; display: flex; min-width: 0; flex-wrap: wrap; gap: 8px; margin: 0 17px 17px; border: 1px solid var(--ns-border-dce4d8, #dce4d8); padding: 6px; }
 .attachment-input { display: none; }
 .composer-tool { display: grid; width: 36px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; background: var(--ns-surface, #fff); color: var(--ns-primary); cursor: pointer; }
 .composer-tool:disabled { cursor: wait; opacity: .5; }
 .composer-tool.dictation-active { border-color: var(--ns-blue-primary, #2563eb); background: var(--ns-blue-tint, #eff6ff); color: var(--ns-blue-primary, #2563eb); }
+.emoji-picker-popover { position: absolute; z-index: 30; bottom: calc(100% + 8px); left: 5px; width: min(360px, calc(100vw - 34px)); max-width: calc(100% - 10px); }
+.emoji-picker-popover :deep(emoji-picker) { display: block; width: 100%; height: min(400px, 58vh); --background: var(--ns-surface, #fff); --border-color: var(--ns-border-e7ebe3, #e7ebe3); --button-active-background: var(--ns-blue-tint, #eff6ff); --indicator-color: var(--ns-blue-primary, #2563eb); }
 .upload-selection, .voice-preview, .upload-progress, .recording-state { display: flex; width: 100%; min-width: 0; align-items: center; gap: 9px; border-radius: 7px; padding: 7px 9px; background: var(--ns-bg-f5f7f1, #f5f7f1); color: var(--ns-text-18352d, #18352d); font-size: 10px; }
 .upload-selection span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .upload-selection button, .voice-preview button, .recording-state button, .upload-progress button { border: 0; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; }
@@ -1012,19 +1136,52 @@
 .composer button:disabled { cursor: not-allowed; opacity: .5; }
 .chat-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 35px; }
 .chat-empty .secondary-action { margin-top: 6px; }
+.forward-dialog-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 18px; background: rgb(15 23 42 / 45%); }
+.forward-dialog { display: grid; width: min(420px, 100%); gap: 12px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 14px; padding: 20px; background: var(--ns-surface, #fff); box-shadow: 0 20px 50px rgb(15 23 42 / 24%); }
+.forward-dialog h2 { margin: 0; color: var(--ns-text-18352d, #18352d); font-size: 18px; }
+.forward-preview { max-height: 120px; overflow: auto; margin: 0; border-inline-start: 3px solid var(--ns-blue-primary, #2563eb); padding: 8px 10px; background: var(--ns-bg-f5f7f1, #f5f7f1); overflow-wrap: anywhere; white-space: pre-wrap; }
+.forward-attachment-note { margin: 0; color: var(--ns-text-secondary); font-size: 12px; }
+.forward-dialog label { color: var(--ns-text-18352d, #18352d); font-size: 13px; font-weight: 600; }
+.forward-dialog select { width: 100%; min-height: 44px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; padding: 8px 10px; background: var(--ns-surface, #fff); color: var(--ns-text-18352d, #18352d); font: inherit; }
+.forward-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.forward-dialog-actions button { min-height: 44px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; padding: 0 14px; background: var(--ns-surface, #fff); color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; }
+.forward-dialog-actions button:last-child { border-color: var(--ns-blue-primary, #2563eb); background: var(--ns-blue-primary, #2563eb); color: white; }
+.forward-dialog-actions button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 760px) {
-  .messaging-layout { min-height: 620px; grid-template-columns: 1fr; }
-  .conversation-sidebar { max-height: 220px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
+  .messages-page-heading { min-height: 44px; justify-content: flex-end; margin-bottom: 10px; }
+  .messages-page-intro { display: none; }
+  .messages-page-heading > .secondary-action { min-height: 44px; }
+  .messaging-layout { min-height: 0; grid-template-columns: minmax(0, 1fr); }
+  .conversation-sidebar { max-height: none; min-width: 0; overflow: auto; border-right: 0; border-bottom: 0; }
+  .inbox-heading { justify-content: flex-end; padding: 0 12px 4px; }
+  .inbox-heading strong, .inbox-heading > span { display: none; }
+  .inbox-heading .refresh-button { width: 40px; height: 40px; }
+  .conversation-search { width: calc(100% - 24px); min-height: 42px; margin: 0 12px 6px; }
+  .conversation-item { min-height: 72px; padding: 12px; }
+  .conversation-copy { gap: 3px; }
+  .conversation-copy strong { font-size: 13px; }
+  .conversation-copy small { font-size: 11px; }
+  .conversation-meta { font-size: 10px; }
   .messaging-layout.has-selected-conversation .conversation-sidebar { display: none; }
-  .messaging-layout.has-selected-conversation .chat-panel { min-height: 540px; }
-  .chat-header { flex-wrap: wrap; gap: 9px; padding: 12px; }
-  .chat-header-identity { flex: 1 1 150px; }
-  .chat-header-tools { flex: 1 1 100%; }
+  .messaging-layout.has-selected-conversation .chat-panel { min-height: min(680px, calc(100dvh - 140px)); }
+  .chat-header { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .chat-header-identity { flex: 1 1 120px; }
+  .chat-header-tools { flex: 1 1 100%; justify-content: space-between; gap: 5px; }
+  .chat-header-tools .chat-tool-button, .selection-toolbar button { width: 44px; height: 44px; }
   .conversation-back { flex: 0 0 auto; }
-  .chat-panel { min-height: 390px; }
+  .chat-panel { min-height: min(680px, calc(100dvh - 140px)); }
   .chat-message { max-width: 88%; }
   .message-list { padding: 16px 12px; }
-  .message-menu-trigger { top: -10px; inset-inline-end: -8px; }
+  .message-menu-trigger, .chat-message .message-context-menu { display: none; }
+  .composer { gap: 5px; margin: 0 8px 10px; padding: 5px; }
+  .composer-tool { width: 44px; height: 44px; }
+  .composer input { flex: 1 1 100px; font-size: 14px; }
+  .composer > button[type='submit'], .composer > button[aria-label='Upload attachment'], .composer > button[aria-label='Send voice message'] { width: 44px; height: 44px; }
+  .message-context-menu button { min-height: 44px; }
+  .emoji-picker-popover { left: 0; width: min(360px, calc(100vw - 28px)); }
+  .emoji-picker-popover :deep(emoji-picker) { height: min(390px, 58vh); }
+  .header-message-menu { position: fixed; top: auto; right: 12px; max-height: min(70vh, 520px); overflow-y: auto; }
+  .forward-dialog { padding: 16px; }
 }
 @media (hover: hover) and (pointer: fine) {
   .message-menu-trigger { opacity: 0; transition: opacity .15s ease; }
