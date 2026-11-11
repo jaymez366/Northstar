@@ -133,6 +133,14 @@ html .brand-dot.brand-dot { color: var(--ns-logo-blue); }
   color: var(--ns-text-primary);
 }
 
+/* Keep pointer feedback quiet while leaving selected states and keyboard focus intact. */
+.workspace-shell :where(a, button, [role='button']):hover:not(:focus-visible),
+.admin-shell :where(a, button, [role='button']):hover:not(:focus-visible) {
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
 .field-control,
 input:not([type='checkbox']):not([type='radio']),
 textarea,

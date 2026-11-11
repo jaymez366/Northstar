@@ -216,6 +216,8 @@
     if (selectedConversation.value) void workspace.updateConversationTyping(selectedConversation.value.id, false)
     selectedId.value = ''
     replyingTo.value = null
+    selectedMessageIds.value = []
+    openMenuMessageId.value = ''
     if (route.query.conversation || route.query.employee) {
       void router.replace({ path: '/messages' })
     }
@@ -737,7 +739,7 @@
 
         <div v-if="filteredConversations.length === 0" class="conversation-empty">
           <template v-if="workspace.conversations.length">No conversations match.</template>
-          <template v-else>No conversations yet. Browse colleagues to start one.</template>
+          <template v-else>No conversations yet.</template>
         </div>
       </aside>
 
@@ -751,6 +753,7 @@
             <span class="chat-header-employee"><strong>{{ displayEmployee?.firstName }} {{ displayEmployee?.lastName }}</strong><small class="presence-label" :class="{ online: (selectedConversation ? selectedConversation.online : composingEmployee?.online) === true }">{{ presenceLabel(selectedConversation ? selectedConversation.online : composingEmployee?.online, selectedConversation ? selectedConversation.lastSeenAt : composingEmployee?.lastSeenAt) }}</small><small v-if="displayEmployee?.title" class="employee-title">{{ displayEmployee.title }}</small></span>
           </div>
           <div v-if="selectedConversation" class="chat-header-tools">
+            <button v-if="selectedMessageIds.length" type="button" class="mobile-selected-message-menu" aria-label="Actions for selected message" aria-haspopup="menu" @click="openMenuMessageId = openMenuMessageId ? '' : selectedMessageIds[0]"><v-icon icon="mdi-dots-vertical" size="19" /></button>
             <div class="chat-call-actions" role="group" aria-label="Call this employee">
               <button class="chat-tool-button" type="button" aria-label="Start voice call" :title="calls.signalingReady ? 'Start voice call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('audio')"><v-icon icon="mdi-phone-outline" size="19" /></button>
               <button class="chat-tool-button" type="button" aria-label="Start video call" :title="calls.signalingReady ? 'Start video call' : 'Call signaling is connecting or unavailable'" :disabled="Boolean(!calls.signalingReady || calls.callStartInFlight || calls.activeCall || calls.incomingCall)" @click="startConversationCall('video')"><v-icon icon="mdi-video-outline" size="19" /></button>
@@ -768,6 +771,11 @@
           <strong>{{ selectedMessageIds.length }} selected</strong>
           <button type="button" aria-label="Delete selected messages for me" title="Delete for me" @click="hideSelectedMessages"><v-icon icon="mdi-delete-outline" size="19" /></button>
           <button v-if="selectedMessageIds.every(id => { const message = selectedConversation?.messages.find(item => item.id === id); return message && canDeleteForEveryone(message) })" type="button" aria-label="Delete selected messages for everyone" title="Delete for everyone" @click="deleteSelectedForEveryone"><v-icon icon="mdi-delete-forever-outline" size="19" /></button>
+          <div v-if="openMenuMessageId && selectedMessageIds.includes(openMenuMessageId)" class="selected-message-context-menu" role="menu" @click.stop>
+            <button role="menuitem" type="button" @click="copyMessage(selectedConversation!.messages.find(item => item.id === openMenuMessageId)!)"><v-icon icon="mdi-content-copy" size="16" /> Copy text</button>
+            <button role="menuitem" type="button" @click="setReplyTarget(selectedConversation!.messages.find(item => item.id === openMenuMessageId)!)"><v-icon icon="mdi-reply-outline" size="16" /> Reply</button>
+            <button role="menuitem" type="button" @click="hideForMe(openMenuMessageId); openMenuMessageId = ''"><v-icon icon="mdi-delete-outline" size="16" /> Delete for me</button>
+          </div>
         </div>
 
         <div v-if="messageSearchOpen" class="message-search-panel">
@@ -827,7 +835,7 @@
             <div v-if="!message.deletedAt" class="reaction-row" aria-label="Message reactions">
               <button v-for="reaction in reactionOptions" :key="reaction" class="reaction-button" :class="{ active: message.reactions.some(item => item.emoji === reaction && item.reactedByMe) }" type="button" :aria-label="`${reaction} reaction${message.reactions.find(item => item.emoji === reaction)?.count ? `, ${message.reactions.find(item => item.emoji === reaction)?.count} total` : ''}`" :aria-pressed="message.reactions.some(item => item.emoji === reaction && item.reactedByMe)" @click.stop="toggleReaction(message.id, reaction)"><span>{{ reaction }}</span><small v-if="message.reactions.find(item => item.emoji === reaction)">{{ message.reactions.find(item => item.emoji === reaction)?.count }}</small></button>
             </div>
-            <button class="message-menu-trigger" type="button" :aria-label="`Actions for message from ${message.author}`" :aria-expanded="openMenuMessageId === message.id" aria-haspopup="menu" @click.stop="openMenuMessageId = openMenuMessageId === message.id ? '' : message.id"><v-icon icon="mdi-dots-vertical" size="18" /></button>
+            <button class="message-menu-trigger" type="button" :aria-label="`Actions for message from ${message.author}`" :aria-expanded="openMenuMessageId === message.id" aria-haspopup="menu" @click.stop="openMenuMessageId = openMenuMessageId === message.id ? '' : message.id"><v-icon icon="mdi-chevron-down" size="19" /></button>
             <div v-if="openMenuMessageId === message.id" class="message-context-menu" role="menu" @click.stop>
               <button v-if="!message.deletedAt" role="menuitem" type="button" @click="copyMessage(message)"><v-icon icon="mdi-content-copy" size="16" /> Copy text</button>
               <button v-if="!message.deletedAt" role="menuitem" type="button" @click="setReplyTarget(message)"><v-icon icon="mdi-reply-outline" size="16" /> Reply</button>
@@ -849,17 +857,17 @@
           <div v-if="recordingVoice" class="recording-state" role="group" aria-label="Voice recording controls"><span class="recording-indicator" :class="{ paused: recordingPaused }" /><span>{{ recordingPaused ? 'Paused' : 'Recording' }} {{ formatDuration(recordingSeconds) }}</span><div class="recording-actions"><button type="button" :aria-label="recordingPaused ? 'Resume recording' : 'Pause recording'" :title="recordingPaused ? 'Resume recording' : 'Pause recording'" @click="toggleVoiceRecordingPause"><v-icon :icon="recordingPaused ? 'mdi-play' : 'mdi-pause'" size="17" /></button><button type="button" aria-label="Cancel recording" title="Cancel recording" @click="stopVoiceRecording(true)"><v-icon icon="mdi-delete-outline" size="17" /></button><button type="button" aria-label="Finish recording" title="Finish recording" @click="stopVoiceRecording(false)"><v-icon icon="mdi-check" size="17" /></button></div></div>
           <input ref="attachmentInput" class="attachment-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx" aria-label="Choose an attachment" @change="chooseAttachment">
           <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" aria-label="Attach image, video or document" title="Attach file" :disabled="uploadingAttachment" @click="attachmentInput?.click()"><v-icon icon="mdi-paperclip" size="19" /></button>
-          <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" aria-label="Record voice message" title="Record voice message" :disabled="uploadingAttachment" @click="startVoiceRecording"><v-icon icon="mdi-microphone-outline" size="19" /></button>
-          <button v-if="!recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" :class="{ 'dictation-active': dictating }" :aria-label="dictating ? 'Stop speech-to-text' : 'Dictate message text'" :title="dictating ? 'Stop dictation' : 'Dictate message text'" :disabled="uploadingAttachment" @click="toggleDictation"><v-icon :icon="dictating ? 'mdi-stop' : 'mdi-microphone-message'" size="19" /></button>
+          <button v-if="!draft.trim() && !recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool voice-note-button" aria-label="Record voice message" title="Record voice message" :disabled="uploadingAttachment" @click="startVoiceRecording"><v-icon icon="mdi-microphone-outline" size="19" /></button>
+          <button v-if="draft.trim() && !recordingVoice && !recordedVoiceFile && !selectedAttachment" type="button" class="composer-tool" :class="{ 'dictation-active': dictating }" :aria-label="dictating ? 'Stop speech-to-text' : 'Dictate message text'" :title="dictating ? 'Stop dictation' : 'Dictate message text'" :disabled="uploadingAttachment" @click="toggleDictation"><v-icon :icon="dictating ? 'mdi-stop' : 'mdi-microphone-message'" size="19" /></button>
           <button v-if="dictating" type="button" class="composer-tool" aria-label="Cancel speech-to-text" title="Cancel dictation" @click="cancelDictation"><v-icon icon="mdi-close" size="18" /></button>
           <input v-model="draft" aria-label="Write a message" autocomplete="off" placeholder="Write a message..." @input="handleComposerInput" @blur="selectedConversation && workspace.updateConversationTyping(selectedConversation.id, false)">
           <button v-if="recordedVoiceFile" type="button" aria-label="Send voice message" :disabled="uploadingAttachment" @click="uploadChatFile(recordedVoiceFile, recordingSeconds)"><v-icon icon="mdi-send" size="18" /></button>
           <button v-else-if="selectedAttachment" type="button" aria-label="Upload attachment" :disabled="uploadingAttachment" @click="uploadChatFile(selectedAttachment)"><v-icon icon="mdi-send" size="18" /></button>
-          <button v-else aria-label="Send message" :disabled="!draft.trim() || sending || uploadingAttachment" type="submit"><v-icon icon="mdi-send" size="18" /></button>
+          <button v-else-if="draft.trim()" aria-label="Send message" :disabled="sending || uploadingAttachment" type="submit"><v-icon icon="mdi-send" size="18" /></button>
         </form>
       </section>
 
-      <section v-else class="chat-empty empty-state"><v-icon icon="mdi-message-text-outline" size="38" /><h2>Your messages</h2><p>Select an employee to open a conversation.</p><router-link class="secondary-action" to="/employees">Browse colleagues</router-link></section>
+      <section v-else class="chat-empty empty-state"><v-icon icon="mdi-message-text-outline" size="38" /><h2>Your messages</h2><p>Select a conversation to get started.</p></section>
     </section>
   </main>
 </template>
@@ -876,7 +884,7 @@
 .inbox-heading span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: var(--ns-bg-eef2e8, #eef2e8); color: var(--ns-text-60776b, #60776b); font-size: 9px; }
 .conversation-search { width: calc(100% - 30px); margin: 0 15px 10px; }
 .conversation-item { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; padding: 12px 14px; background: var(--ns-bg-fff, #fff); cursor: pointer; text-align: left; }
-.conversation-item:hover, .conversation-item.selected { background: var(--ns-bg-f1f4eb, #f1f4eb); }
+.conversation-item.selected { background: var(--ns-bg-f1f4eb, #f1f4eb); }
 .conversation-avatar { position: relative; display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border-radius: 50%; color: var(--ns-text-18352d, #18352d); font-size: 10px; font-weight: 800; }
 .conversation-avatar i { position: absolute; right: 0; bottom: 1px; width: 9px; height: 9px; border: 2px solid white; border-radius: 50%; background: var(--ns-bg-9ca89f, #9ca89f); }
 .conversation-avatar i.online { background: var(--ns-bg-68a477, #68a477); }
@@ -912,7 +920,6 @@
 .chat-call-status { max-width: 132px; color: var(--ns-text-secondary, #64756b); font-size: 9px; line-height: 1.25; }
 .chat-tool-button:focus-visible, .selection-toolbar button:focus-visible, .message-search-panel button:focus-visible, .message-context-menu button:focus-visible, .message-menu-trigger:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
 .conversation-back { display: inline-flex; min-height: 36px; align-items: center; gap: 5px; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 8px; padding: 0 9px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; font-size: 10px; }
-.conversation-back:hover { background: var(--ns-bg-f1f4eb, #f1f4eb); }
 .conversation-back:focus-visible { outline: 2px solid var(--ns-blue-primary, #2563eb); outline-offset: 2px; }
 .chat-header strong { color: var(--ns-text-18352d, #18352d); font-size: 11px; }
 .chat-header small { color: var(--ns-text-829187, #829187); font-size: 9px; }
@@ -976,7 +983,8 @@
 .message-menu-trigger { position: absolute; z-index: 2; top: 2px; inset-inline-end: 2px; display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 50%; background: var(--ns-surface, #fff); color: var(--ns-text-18352d, #18352d); cursor: pointer; opacity: .95; }
 .message-context-menu { position: absolute; z-index: 10; top: 32px; inset-inline-end: 0; display: grid; width: min(220px, calc(100vw - 30px)); border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 10px; padding: 5px; background: var(--ns-surface, #fff); box-shadow: 0 12px 28px rgb(19 41 32 / 18%); }
 .message-context-menu button { display: flex; min-height: 38px; align-items: center; gap: 9px; border: 0; border-radius: 6px; padding: 0 9px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; font-size: 11px; text-align: left; }
-.message-context-menu button:hover { background: var(--ns-bg-f1f4eb, #f1f4eb); }
+.selected-message-context-menu { position: absolute; z-index: 10; inset-inline-end: 8px; top: 44px; display: none; width: min(220px, calc(100vw - 30px)); border: 1px solid var(--ns-border-e7ebe3, #e7ebe3); border-radius: 10px; padding: 5px; background: var(--ns-surface, #fff); box-shadow: 0 12px 28px rgb(19 41 32 / 18%); }
+.selected-message-context-menu button { display: flex; min-height: 38px; align-items: center; gap: 9px; border: 0; border-radius: 6px; padding: 0 9px; background: transparent; color: var(--ns-text-18352d, #18352d); cursor: pointer; font: inherit; font-size: 11px; text-align: left; }
 .message-edit-form { display: grid; gap: 6px; min-width: min(70vw, 320px); border: 1px solid var(--ns-border); padding: 8px; }
 .message-edit-form textarea { resize: vertical; border: 1px solid var(--ns-border); padding: 8px; font: inherit; }
 .message-error { grid-column: 1 / -1; margin: 0; padding: 10px 15px; background: #fff2ef; color: var(--ns-danger-text, #9b3328); font-size: 11px; }
@@ -1012,9 +1020,11 @@
 .composer button:disabled { cursor: not-allowed; opacity: .5; }
 .chat-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 35px; }
 .chat-empty .secondary-action { margin-top: 6px; }
+.mobile-selected-message-menu { display: none; }
 @media (max-width: 760px) {
   .messaging-layout { min-height: 620px; grid-template-columns: 1fr; }
   .conversation-sidebar { max-height: 220px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--ns-border-e7ebe3, #e7ebe3); }
+  .inbox-heading { display: none; }
   .messaging-layout.has-selected-conversation .conversation-sidebar { display: none; }
   .messaging-layout.has-selected-conversation .chat-panel { min-height: 540px; }
   .chat-header { flex-wrap: wrap; gap: 9px; padding: 12px; }
@@ -1024,10 +1034,10 @@
   .chat-panel { min-height: 390px; }
   .chat-message { max-width: 88%; }
   .message-list { padding: 16px 12px; }
-  .message-menu-trigger { top: -10px; inset-inline-end: -8px; }
-}
-@media (hover: hover) and (pointer: fine) {
-  .message-menu-trigger { opacity: 0; transition: opacity .15s ease; }
-  .chat-message:hover .message-menu-trigger, .chat-message:focus-within .message-menu-trigger { opacity: 1; }
+  .message-menu-trigger { display: none; }
+  .message-context-menu { display: none; }
+  .mobile-selected-message-menu { display: grid; }
+  .selection-toolbar { position: relative; }
+  .selected-message-context-menu { display: grid; }
 }
 </style>
