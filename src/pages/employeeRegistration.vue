@@ -2,6 +2,7 @@
   import { computed, onMounted, reactive, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import northstarLogo from '@/assets/logo.svg'
   import { isSupabaseConfigured, supabase } from '../../lib/supabase.js'
   import { validateNorthstarPhoto } from '@/utils/registrationPhoto'
 
@@ -264,6 +265,10 @@
 
 <template>
   <main class="registration-page">
+    <div class="registration-brand" aria-label="NorthStar">
+      <img :src="northstarLogo" alt="NorthStar logo">
+      <strong>NorthStar<span>.</span></strong>
+    </div>
     <header class="page-heading">
       <div>
         <p class="eyebrow">EMPLOYEE ONBOARDING</p>
@@ -402,7 +407,14 @@
 </template>
 
 <style scoped>
-.registration-page { max-width: 940px; margin: 0 auto; }
+.registration-page { width: 100%; min-height: 100vh; margin: 0; padding: 26px clamp(18px, 5vw, 64px) 56px; box-sizing: border-box; background: var(--ns-page, #f3f6fa); color: var(--ns-text-primary, #172338); }
+.registration-brand, .registration-page > .page-heading, .registration-form, .correction-notice { width: min(100%, 1080px); margin-inline: auto; }
+.registration-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 30px; color: var(--ns-text-primary, #172338); }
+.registration-brand img { width: 34px; height: 34px; object-fit: contain; }
+.registration-brand strong { font-size: 19px; letter-spacing: -.6px; }
+.registration-brand strong span { color: var(--ns-primary, #2563eb); }
+.registration-page > .page-heading { margin-top: 0; }
+.registration-page .registration-form { margin-top: 0; }
 .photo-choice { display: grid; gap: 10px; border: 1px solid var(--ns-border-dce4d9, #dce4d9); padding: 14px; color: var(--ns-text-53665a, #53665a); font-size: 10px; }
 .correction-notice { margin-bottom: 16px; padding: 16px; color: var(--ns-text-primary); }
 .correction-notice p { margin: 7px 0 0; font-size: 11px; line-height: 1.6; }
@@ -446,6 +458,10 @@
 .primary-action:focus-visible { outline: 3px solid var(--ns-blue-border); outline-offset: 2px; }
 .loading-icon { animation: rotate 1s linear infinite; }
 @keyframes rotate { to { transform: rotate(360deg); } }
-@media (max-width: 620px) { .registration-grid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) {
+  .registration-page { min-height: 100dvh; padding: 20px 14px 32px; }
+  .registration-brand { margin-bottom: 24px; }
+  .registration-grid { grid-template-columns: 1fr; }
+}
 @media (prefers-reduced-motion: reduce) { .loading-icon { animation: none; } }
 </style>

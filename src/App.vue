@@ -5,7 +5,7 @@
         <router-view />
       </AdminLayout>
 
-      <WorkspaceLayout v-else-if="route.meta.requiresAuth">
+      <WorkspaceLayout v-else-if="route.meta.requiresAuth && route.path !== '/employee-registration'">
         <router-view />
       </WorkspaceLayout>
 
